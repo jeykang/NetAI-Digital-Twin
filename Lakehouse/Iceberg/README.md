@@ -9,8 +9,14 @@
     ```
 
 1.  **Create a `.env` file**
-
+    ```bash
+    cp example.env .env
+    ```
       - Refer to the `example.env` file for configuration.
+    > [!NOTE]
+    > The `MINIO_ROOT_USER` and `AWS_ACCESS_KEY_ID`, as well as the `MINIO_ROOT_PASSWORD` and `AWS_SECRET_ACCESS_KEY` in the `.env` file, must match each other. 
+    >
+    > The USER must be at least 5 characters long, and the PASSWORD must be at least 8 characters long.
 
 2.  **Grant execution permissions and run `start.sh`**
 
@@ -50,3 +56,6 @@
 
       - Access: http://localhost:19120
       - Check if the `db` namespace/folder has been created.
+
+> [!NOTE]
+> The MinIO and Nessie data are stored in the `minio_data` and `nessie_data` folders within the directory where the Docker Compose command is executed, so the data is preserved even if the containers are removed and restarted.

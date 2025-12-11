@@ -1,8 +1,25 @@
-# omniverse-extentions
+# Omniverse Extensions
+
 ## How to Import These Extensions
-- Extensions -> Settings -> Extension Search Paths
 
-[UWB RTLS] git://github.com/KappyDays/omniverse-extentions.git?branch=main&dir=real-time-uwb-exts/exts
+Navigate to: **Isaac Sim Extensions → Settings → Extension Search Paths**
 
-1. git clone
-2. Add the path of the cloned repository to 'Extension Search Paths'
+### Method 1: Direct Import via Git
+Import extensions by simply providing a Git URL. Omniverse will automatically clone the repository and register the extension without requiring manual download.
+
+**Prerequisites:** Git must be installed on your system.
+
+**Example: Importing Vehicle-Scenarios Extension**
+```
+git://github.com/KappyDays/NetAI-Digital-Twin.git?branch=main&dir=Omniverse/omniverse-extensions/Vehicle-Scenarios
+```
+
+### Method 2: Local Import
+Download the extension repository (folder) and register its local path in the Extension Search Paths.
+
+**Example: Importing Vehicle-Scenarios Extension**
+1. Download the `Vehicle-Scenarios` folder
+2. Add the local path to Extension Search Paths
+   ```
+   C:\workspace\NetAI-Digital-Twin\Omniverse\omniverse-extensions\Vehicle-Scenarios
+   ```

@@ -1,8 +1,7 @@
 # Warning!
-exts/uwb.rtls/uwb/rtls 폴더에 my_config.json 파일이 있어야 함
+extension 활성화 시 exts/uwb.rtls/uwb/rtls 폴더에 my_config.json 파일이 있어야 함
 
-![UWB_RTLS](gifs/UWB_RTLS.gif)
-
+![UWB_RTLS](https://github.com/user-attachments/assets/968a971d-7383-442d-9145-1303df4ee81d)
 
 # Extension Project Template
 

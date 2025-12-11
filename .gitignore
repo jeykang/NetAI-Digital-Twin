@@ -1,3 +1,13 @@
+# Personal Ignores
+my_config*.json
+*.my_env*
+test.py
+# my
+.gitsecret/keys/*
+!.gitsecret/keys/*.kbx*
+!*.secret
+omniverse-exts/operation-monitoring-exts-project/exts/operation.monitoring/operation/monitoring/ultra-optics-433707-s2-b93cb4a7a435.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

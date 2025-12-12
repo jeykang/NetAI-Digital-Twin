@@ -46,3 +46,4 @@ Default account information for accessing the terminal (shell) inside each VNC c
 
   * **Docker Access:** Within each VNC container, the Docker-in-Docker environment is enabled
   * **GPU Access:** Allowing for **NVIDIA GPU usage and management** via the `docker` command and `nvidia-smi`.
+  * **Automatic Restart:** Containers are configured with `restart: unless-stopped`, ensuring they automatically restart after a host reboot or if they crash.

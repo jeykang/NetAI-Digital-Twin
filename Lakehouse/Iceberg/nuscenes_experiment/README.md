@@ -1,5 +1,7 @@
 # Performance Analysis of Data Lakehouse based on Iceberg OTF
 
+<img width="984" height="584" alt="output" src="https://github.com/user-attachments/assets/08912181-8d2e-4d5d-b9d3-19d3d7c181e5" />
+
 This project investigates the design and performance of a **Data Lakehouse** using **Apache Iceberg**, focusing on the migration from a legacy file-based data lake to a structured Lakehouse architecture.
 
 The experiments utilize the **[nuScenes](https://www.nuscenes.org/nuscenes)** autonomous driving dataset to compare performance across three stages: Baseline (Legacy), Iceberg-Silver, and Iceberg-Gold.

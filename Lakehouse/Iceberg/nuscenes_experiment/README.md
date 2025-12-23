@@ -4,108 +4,127 @@
 
 This project investigates the design and performance of a **Data Lakehouse** using **Apache Iceberg**, focusing on the migration from a legacy file-based data lake to a structured Lakehouse architecture.
 
-The experiments utilize the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** autonomous driving dataset to compare performance across three stages: Baseline (Legacy), Iceberg-Silver, and Iceberg-Gold.
+The experiments utilize the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** autonomous driving dataset to compare performance across three evolutionary stages: **Baseline (Legacy)**, **Iceberg-Silver (Relational)**, and **Iceberg-Gold (Optimized)**.
 
 ---
 
-## 📂 Dataset: [nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes) (Partial)
+## 📂 1. Dataset Overview: nuScenes v1.0-mini (Partial)
 
-We utilized a subset of the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** dataset. The raw data consists of directory-based sensor files (images, pcd) and metadata stored in JSON format.
+We utilized a subset of the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** dataset. The raw data consists of directory-based sensor files (images, pcd) and highly structured metadata stored in JSON format.
+
+### Source Data Schema (Baseline Input)
+
+For this experiment, we utilized 7 distinct JSON files to represent the dataset metadata. To generate the training dataset, the legacy system requires parsing and iteratively joining these files based on token keys.
+
+* **Core Metadata:** `sample.json`, `sample_data.json`
+* **Sensor Metadata:** `sensor.json`, `calibrated_sensor.json`
+* **Annotation Metadata:** `sample_annotation.json`, `instance.json`, `category.json`
+
+> **⚠️ Baseline Bottleneck:** Retrieving data for a specific condition (e.g., *"Front Camera only"*) requires scanning unrelated JSON objects and performing heavy in-memory joins using Python loops.
 
 ---
 
-### Source Data Schema (Raw JSON Metadata)
+## 🏗️ 2. Architecture & Experimental Stages
 
-Before migration, the dataset is organized in a relational structure using multiple JSON files. To access specific sensor data, the system must parse and join these files based on token keys.
+This research compares three distinct architectural approaches to handling this complex metadata.
 
-* **`sample.json`**: Represents a snapshot in time (a scene frame).
-* **`sample_data.json`**: Contains metadata for the actual sensor data (images, radar, lidar) linked to a sample.
+### Phase 1: Baseline (File-based Data Lake)
 
-Below is an actual example of the raw JSON structure used in the Baseline:
+* **Structure:** Raw directory structure with scattered JSON metadata files.
+* **Method:** **Iterative Parsing & In-memory Join**.
+* The system loads multiple JSON files into memory.
+* It performs iterative lookups (Python Dictionary) to link `sample`  `sample_data`  `annotation`.
+
+
+* **Limitation:** High I/O latency due to full file scans and lack of indexing.
+
+### Phase 2: Iceberg-Silver (Relational Lakehouse)
+* **Structure:** **Normalized Tables (1:1 migration)**.
+    * Data is stored in separate Iceberg tables (e.g., `nessie.nusc_db.samples`, `nessie.nusc_db.annotations`).
+    * **Optimization:** The `sample_data` table is **partitioned by `channel`**, enabling **Partition Pruning** during sensor data retrieval.
+* **Method:** **Runtime SQL Joins**.
+    * Queries must execute complex **multi-way joins** at runtime to link the filtered sensor data with annotations.
+* **Limitation:**
+    * Despite partition pruning on `sample_data`, performance is **bottlenecked by the Shuffle Join** overhead. The engine must scan the large, unpartitioned `annotations` table and shuffle data across the cluster to match records.
+
+### Phase 3: Iceberg-Gold (Optimized Data Mart)
+
+* **Structure:** **Single Denormalized Table**.
+* All necessary features (Image paths, 3D Boxes, Categories, Channels) are pre-joined into a single table: `nessie.nusc_db.sample_data_gold`.
+
+
+* **Method:** **Zero-Join & Partition Pruning**.
+* **Partitioning:** The table is physically partitioned by `channel`.
+* **Pruning:** Queries filtering by `channel` skip unrelated files entirely.
+
+
+* **Advantage:** Eliminates join overhead and minimizes I/O.
+
+---
+
+## ❄️ 3. Migrated Table Schema (Gold Layer)
+
+The **Iceberg-Gold** table is designed to support ML data loading workloads efficiently. It consolidates all features into a flat schema.
+
+| Column Name | Data Type | Description | Source (Origin) |
+| --- | --- | --- | --- |
+| `img_path` | `string` | File path derived from `filename` | `sample_data` |
+| `translation` | `array<double>` | 3D Global coordinates (x, y, z) | `sample_annotation` |
+| `size` | `array<double>` | Object dimensions (w, l, h) | `sample_annotation` |
+| `rotation` | `array<double>` | Orientation (Quaternion) | `sample_annotation` |
+| `category_name` | `string` | Object classification | `category` |
+| **`channel`** | **`string`** | **Sensor Channel (Partition Key)** | `sensor` |
+
+> **Note on Partitioning:** The table is partitioned by the **`channel`** column (e.g., `CAM_FRONT`, `LIDAR_TOP`). This allows the query engine to instantly skip unrelated sensor partitions.
+
+---
+
+## 🎯 4. Experimental Workload
+
+We designed a specific query workload to measure the performance gap between the Baseline, Silver, and Gold stages.
+
+### Target Scenario
+
+The experiment simulates a real-world Autonomous Driving ML data preparation task:
+
+> *"Retrieve image paths and 3D bounding box parameters for **Adult Pedestrians** captured by the **Front Camera**."*
+
+### Query Filters
+
+To evaluate **Partition Pruning** and **Column Projection** capabilities, we applied the following filters:
+
+1. **Sensor Filter:** `channel = 'CAM_FRONT'` (Tests Partition Pruning)
+2. **Category Filter:** `category_name = 'human.pedestrian.adult'` (Tests Row Filtering)
+
+### Final Output Data
+
+All three experiments produce the exact same dataset required for training 3D object detection models:
 
 ```json
-/* 1. sample.json - Defines a specific timestamp/frame */
 {
-  "token": "ca9a282c9e77460f8360f564131a8af5",       // Primary Key (Unique Frame ID)
-  "timestamp": 1532402927647951,
-  "prev": "",
-  "next": "39586f9d59004284a7114a68825e8eec",        // Token for the next frame
-  "scene_token": "cc8c0bf57f984915a77078b10eb33198"
-}
-
-/* 2. sample_data.json - Links sensor data to a sample */
-{
-  "token": "5ace90b379af485b9dcb1584b01e7212",
-  "sample_token": "39586f9d59004284a7114a68825e8eec", // Foreign Key (Links to sample.json)
-  "ego_pose_token": "5ace90b379af485b9dcb1584b01e7212",
-  "calibrated_sensor_token": "f4d2a6c281f34a7eb8bb033d82321f79",
-  "timestamp": 1532402927814384,
-  "fileformat": "pcd",
-  "filename": "sweeps/RADAR_FRONT/n015...1532402927814384.pcd", // Actual binary file path
-  "is_key_frame": false,
-  "height": 0,
-  "width": 0
+  "img_path": "samples/CAM_FRONT/n015-2018...jpg",
+  "bbox_translation": [373.21, 1130.48, 1.25],
+  "bbox_size": [0.62, 0.67, 1.64],
+  "bbox_rotation": [0.98, 0.00, 0.00, -0.18]
 }
 
 ```
 
-> **Performance Bottleneck:** In the Baseline approach, retrieving data for a specific time range or channel requires iterative scanning and joining of these JSON files, which causes significant I/O overhead compared to the Iceberg table format.
-### Migrated Schema & Target Workload (Iceberg Table)
-The raw JSON data is parsed and transformed into the following structured schema. While the schema supports full multi-sensor data, our experiments focused on a specific subset to evaluate query performance.
-
-#### 1. Table Schema
-| Column Name | Data Type | Description |
-| :--- | :--- | :--- |
-| `img_path` | `string` | File path derived from `filename` |
-| `translation` | `array<double>` | Object location (x, y, z) |
-| `size` | `array<double>` | Object dimensions (w, l, h) |
-| `rotation` | `array<double>` | Orientation (Quaternion) |
-| `category_name` | `string` | Object classification |
-| **`channel`** | **`string`** | **Sensor Channel (Partition Key)** |
-
-> **Note on Partitioning:** The table is partitioned by the **`channel`** column. This structure allows the engine to significantly reduce I/O by skipping unrelated sensor partitions during queries.
-
-#### 2. Experimental Target Data
-To accurately measure the performance gap between the Baseline and the Data Lakehouse, we targeted a specific subset of data that requires both **partition pruning** and **column filtering**:
-
-* **Target Channel:** `CAM_FRONT` (Partition Pruning)
-* **Target Category:** `human.pedestrian.adult` (Data Filtering)
-
-**Why this choice?**
-This workload simulates a real-world autonomous driving scenario (e.g., "Find all pedestrians detected by the front camera") and highlights the efficiency of Iceberg's metadata handling compared to the full-scan approach of the Baseline.
-
 ---
 
-## 🏗️ Architecture & Experimental Stages
+## 📊 5. Performance Benchmarks
 
-The research compares three distinct architectural approaches:
-
-### 1. Baseline (File-based Data Lake)
-* **Structure:** Raw directory structure containing sensor files and JSON metadata files.
-* **Method:** Iterative file listing and parsing of multiple JSON files to link data relationships.
-
-### 2. Iceberg-Silver (Join-on-read)
-* **Structure:** Data migrated to Apache Iceberg format.
-* **Method:** **Join-on-read**. Data is normalized; queries require joining multiple tables at runtime.
-
-### 3. Iceberg-Gold (Single-table / Pre-aggregated)
-* **Structure:** Optimized Iceberg table.
-* **Method:** **Single-table** (Denormalized). Data is pre-joined and optimized using techniques like Z-Ordering or Compaction.
-
----
-
-## 📊 Performance Benchmarks
-
-We measured query latency across different data scales (Scale Factors) to evaluate the scalability of each approach.
+We measured query execution time across different data scales to evaluate scalability.
 
 ### Experiment Conditions
+
 * **Metric:** Query execution time (seconds)
-* **Variable:** Scale Factor (N), resulting in $N^2$ data growth.
+* **Variable:** Scale Factor (N), resulting in approx  data growth.
 
 ### Result Table
 
-| Scale Factor (N) | Multiplier ($N^2$) | Approx. Row Count | Baseline (File-based) | Iceberg-Silver (Join-on-read) | Iceberg-Gold (Single-table) |
-| :---: | :---: | :---: | :---: | :---: | :---: |
+| Scale Factor (N) | Multiplier () | Approx. Row Count | Baseline (File-based) | Iceberg-Silver (Relational Join) | Iceberg-Gold (Single-table) |
+| --- | --- | --- | --- | --- | --- |
 | **1** | 1x | 27,483 | 0.0620s | 0.2445s | 0.0675s |
 | **3** | 9x | 247,347 | 0.4626s | 0.4353s | 0.0993s |
 | **5** | 25x | 687,075 | 1.1693s | 0.6587s | 0.1250s |
@@ -113,9 +132,15 @@ We measured query latency across different data scales (Scale Factors) to evalua
 
 ### Key Findings
 
-1.  **Scalability:**
-    * **Baseline:** Performance degrades linearly (or worse) as data volume increases (0.06s → 2.13s). File listing overhead becomes a bottleneck.
-    * **Iceberg-Gold:** Shows remarkably stable performance even as data grows by 49x (0.06s → 0.14s).
-2.  **Overhead vs. Optimization:**
-    * At low data volumes (N=1), **Iceberg-Silver** is slower due to the overhead of the "Join-on-read" operation and Iceberg metadata handling.
-    * However, as data scales (N=7), the optimized **Iceberg-Gold** layer outperforms the Baseline by approximately **14x** (2.1338s vs 0.1497s).
+1. **Bottleneck of Legacy System:**
+* The **Baseline** shows linear (or worse) performance degradation () as data volume increases. The overhead of listing files and parsing JSON in Python becomes the dominant factor.
+
+
+2. **Cost of Joins (Silver):**
+* **Iceberg-Silver** is initially slower than Baseline at low scale () due to the overhead of distributed computing (Spark) and metadata handling.
+* While it scales better than Baseline, it still suffers from **Runtime Join costs** between the partitioned `sample_data` and unpartitioned `annotations`.
+
+
+3. **Efficiency of Lakehouse (Gold):**
+* **Iceberg-Gold** demonstrates superior scalability, maintaining sub-second latency () even at 49x scale.
+* By leveraging **Partition Pruning** (skipping files) and **Pre-computation** (eliminating joins), it outperforms the Baseline by approximately **14x** at scale.

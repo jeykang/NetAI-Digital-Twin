@@ -28,39 +28,59 @@ For this experiment, we utilized 7 distinct JSON files to represent the dataset 
 
 This research compares three distinct architectural approaches to handling this complex metadata.
 
+---
+
 ### Phase 1: Baseline (File-based Data Lake)
 
-* **Structure:** Raw directory structure with scattered JSON metadata files.
+* **Structure:** **Raw Directory & Distributed JSONs**.
+* The dataset consists of scattered sensor files and **7 distinct JSON metadata files** (e.g., `sample.json`, `sample_data.json`).
+* **State:** Unstructured and schema-on-read; no indexing or partitioning is applied.
+
+
 * **Method:** **Iterative Parsing & In-memory Join**.
-* The system loads multiple JSON files into memory.
-* It performs iterative lookups (Python Dictionary) to link `sample`  `sample_data`  `annotation`.
+* The system must **load all JSON files** into memory and parse them as Python dictionaries.
+* Data linkage relies on **iterative lookups** (Python loops) to manually associate `sample`  `sample_data`  `annotation`.
 
 
-* **Limitation:** High I/O latency due to full file scans and lack of indexing.
+* **Limitation:**
+* Performance is **bottlenecked by sequential I/O and CPU overhead**. Retrieving specific data requires scanning entire JSON files regardless of the filter condition.
+
+
+
+---
 
 ### Phase 2: Iceberg-Silver (Relational Lakehouse)
+
 * **Structure:** **Normalized Tables (1:1 migration)**.
-    * Data is stored in separate Iceberg tables (e.g., `nessie.nusc_db.samples`, `nessie.nusc_db.annotations`).
-    * **Optimization:** The `sample_data` table is **partitioned by `channel`**, enabling **Partition Pruning** during sensor data retrieval.
+* Data is stored in separate Iceberg tables (e.g., `nessie.nusc_db.samples`, `nessie.nusc_db.annotations`).
+* **Optimization:** The `sample_data` table is **partitioned by `channel**`, enabling **Partition Pruning** during sensor data retrieval.
+
+
 * **Method:** **Runtime SQL Joins**.
-    * Queries must execute complex **multi-way joins** at runtime to link the filtered sensor data with annotations.
+* Queries must execute complex **multi-way joins** at runtime to link the filtered sensor data with annotations.
+
+
 * **Limitation:**
-    * Despite partition pruning on `sample_data`, performance is **bottlenecked by the Shuffle Join** overhead. The engine must scan the large, unpartitioned `annotations` table and shuffle data across the cluster to match records.
+* Despite partition pruning on `sample_data`, performance is **bottlenecked by the Shuffle Join** overhead. The engine must scan the large, unpartitioned `annotations` table and shuffle data across the cluster to match records.
+
+
+
+---
 
 ### Phase 3: Iceberg-Gold (Optimized Data Mart)
 
 * **Structure:** **Single Denormalized Table**.
-* All necessary features (Image paths, 3D Boxes, Categories, Channels) are pre-joined into a single table: `nessie.nusc_db.sample_data_gold`.
+* All necessary features (Image paths, 3D Boxes, Categories, Channels) are **pre-joined** into a single table: `nessie.nusc_db.sample_data_gold`.
+* **Optimization:** The entire table is physically **partitioned by `channel**`, aligning data storage with the query pattern.
 
 
 * **Method:** **Zero-Join & Partition Pruning**.
-* **Partitioning:** The table is physically partitioned by `channel`.
-* **Pruning:** Queries filtering by `channel` skip unrelated files entirely.
+* The query engine leverages **Partition Pruning** to read *only* the specific folder (e.g., `channel=CAM_FRONT`), skipping all unrelated data.
+* No runtime joins are required, as the schema is already flattened.
 
 
-* **Advantage:** Eliminates join overhead and minimizes I/O.
-
----
+* **Advantage:**
+* **Eliminates Shuffle Joins** entirely and **minimizes I/O** to the absolute minimum, resulting in consistent sub-second query latency suitable for ML data loading.
 
 ## ❄️ 3. Migrated Table Schema (Gold Layer)
 

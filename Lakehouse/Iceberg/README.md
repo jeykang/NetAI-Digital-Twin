@@ -2,6 +2,67 @@
 > [!NOTE]
 > Replace `localhost` with your machine's IP address if necessary.
 
+# Version Check
+
+🛠 Versions
+
+| Software | Version | Repository / Base Image |
+| --- | --- | --- |
+| **Nessie** | `0.106.0` | `ghcr.io/projectnessie/nessie` |
+| **MinIO** | `2025-09-07T16-13-09Z` | `quay.io/minio/minio` |
+| **Apache Spark** | `3.5.5` | `tabulario/spark-iceberg` |
+| **Scala** | `2.12.18` | `tabulario/spark-iceberg` |
+| **Apache Iceberg** | `1.8.1` | `tabulario/spark-iceberg` |
+
+---
+
+🔍 How to Verify Versions
+
+You can verify the installed software versions using the following commands:
+
+### **Project Nessie**
+
+Check the container logs to find the version and build information.
+
+```bash
+docker logs [nessie_container_name]
+
+```
+
+### **MinIO**
+
+Execute the version command inside the MinIO container to check the specific release tag.
+
+```bash
+docker exec -it minio minio --version
+
+```
+
+### **Apache Spark & Scala**
+
+Run the `spark-submit` command inside your Spark container to view both Spark and Scala versions.
+
+```bash
+# Run inside the Spark container
+spark-submit --version
+
+```
+
+### **Apache Iceberg**
+
+Since Iceberg is bundled as a library, check the version by inspecting the JAR filename in the `jars` directory.
+
+```bash
+ls jars | grep iceberg
+# Example: iceberg-spark-runtime-3.5_2.12-1.8.1.jar
+# (3.5 = Spark, 2.12 = Scala, 1.8.1 = Iceberg version)
+
+```
+
+---
+
+# Start Iceberg
+
 0. **Clone the repository**
     ```bash
     git clone <REPO>

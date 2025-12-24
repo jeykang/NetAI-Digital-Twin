@@ -4,7 +4,7 @@
 
 # Version Check
 
-🛠 Versions
+### 🛠 Versions
 
 | Software | Version | Repository / Base Image |
 | --- | --- | --- |
@@ -16,48 +16,43 @@
 
 ---
 
-🔍 How to Verify Versions
+### 🔍 How to Verify Versions
 
 You can verify the installed software versions using the following commands:
 
-### **Project Nessie**
+1. **Project Nessie**
 
-Check the container logs to find the version and build information.
+    Check the container logs to find the version and build information.
+    ```bash
+    docker logs [nessie_container_name]
+    ```
 
-```bash
-docker logs [nessie_container_name]
+2. **MinIO**
 
-```
+    Execute the version command inside the MinIO container to check the specific release tag.
+    
+    ```bash
+    docker exec -it minio minio --version
+    ```
 
-### **MinIO**
+3. **Apache Spark & Scala**
 
-Execute the version command inside the MinIO container to check the specific release tag.
+    Run the `spark-submit` command inside your Spark container to view both Spark and Scala versions.
+    
+    ```bash
+    # Run inside the Spark container
+    spark-submit --version
+    ```
 
-```bash
-docker exec -it minio minio --version
+4. **Apache Iceberg**
 
-```
-
-### **Apache Spark & Scala**
-
-Run the `spark-submit` command inside your Spark container to view both Spark and Scala versions.
-
-```bash
-# Run inside the Spark container
-spark-submit --version
-
-```
-
-### **Apache Iceberg**
-
-Since Iceberg is bundled as a library, check the version by inspecting the JAR filename in the `jars` directory.
-
-```bash
-ls jars | grep iceberg
-# Example: iceberg-spark-runtime-3.5_2.12-1.8.1.jar
-# (3.5 = Spark, 2.12 = Scala, 1.8.1 = Iceberg version)
-
-```
+    Since Iceberg is bundled as a library, check the version by inspecting the JAR filename in the `jars` directory.
+    
+    ```bash
+    ls jars | grep iceberg
+    # Example: iceberg-spark-runtime-3.5_2.12-1.8.1.jar
+    # (3.5 = Spark, 2.12 = Scala, 1.8.1 = Iceberg version)\
+    ```
 
 ---
 
@@ -87,9 +82,37 @@ ls jars | grep iceberg
     ```
 
 3.  **Create a `spark1` bucket in MinIO** (Required for the Spark test script)
+          
+    You can create the required `spark1` bucket using either the Web UI or the Container CLI.
+    
+    #### **Option A: Via Web UI (Recommended for GUI users)**
+    
+    1. **Access the Console:** Open [http://localhost:9001](https://www.google.com/search?q=http://localhost:9001) in your browser.
+    2. **Login:** Use the `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` defined in your `.env` file.
+    3. **Create Bucket:** Click on **'Buckets'** -> **'Create Bucket'** and name it `spark1`.
+    
+    #### **Option B: Via Container CLI (Recommended for terminal users)**
+    
+    1. **Access the MinIO container:**
+        ```bash
+        docker exec -it minio bash
+        
+        ```
+    
+    
+    2. **Configure alias and create the bucket:**
+        ```bash
+        # Use the credentials from your .env file
+        mc alias set local http://localhost:9000 admin password
+        mc mb local/spark1
+        
+        ```
+    3. **Check created bucket**
+       ```bash
+       mc ls local
+       ```
 
-      - Access: http://localhost:9001
-      - Login with the credentials defined in your `.env` file.
+---
 
 4.  **Access the `spark-iceberg` container**
 

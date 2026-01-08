@@ -1,17 +1,31 @@
 services:
-  # 1. Nessie (Iceberg Catalog)
-  nessie:
-    image: ghcr.io/projectnessie/nessie:0.106.0 # ghcr.io/projectnessie/nessie:latest
-    container_name: nessie
+  # 1. Polaris (Iceberg REST Catalog)
+  polaris:
+    image: apache/polaris:latest
+    container_name: polaris
     ports:
-      - 19120:19120 # Nessie API Port
+      - 8181:8181 # Polaris API
+      - 8182:8182 # Health/Metrics
     networks:
-      - nessie_net
+      lakehouse_net:
+        aliases:
+          - rest
+    depends_on:
+      minio:
+        condition: service_healthy
     environment:
-      - NESSIE_VERSION_STORE_TYPE=ROCKSDB
-      - NESSIE_VERSION_STORE_PERSIST_ROCKS_DATABASE_PATH=/data/nessie_rocksdb
-    volumes:
-      - ./nessie_data:/data
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      - POLARIS_BOOTSTRAP_CREDENTIALS=${POLARIS_REALM:-POLARIS},${POLARIS_ROOT_CLIENT_ID:-root},${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
+      - polaris.realm-context.realms=${POLARIS_REALM:-POLARIS}
+      - quarkus.otel.sdk.disabled=true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8182/q/health"]
+      interval: 2s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
 
   # 2. MinIO (S3-compatible Object Storage)
   minio:
@@ -21,13 +35,115 @@ services:
       - 9000:9000 # API Port
       - 9001:9001 # Console Port
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     networks:
-      - nessie_net
+      - lakehouse_net
     command: ["server", "/data", "--console-address", ":9001"]
     volumes:
       - ./minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 1s
+      timeout: 10s
+
+  setup_bucket:
+    image: quay.io/minio/mc:latest
+    container_name: setup_bucket
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - lakehouse_net
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - >-
+        echo Creating MinIO bucket...;
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing local/${S3_BUCKET:-spark1};
+        mc ls local;
+        echo Bucket setup complete.;
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-spark1}
+
+  polaris-setup:
+    image: alpine/curl
+    container_name: polaris_setup
+    depends_on:
+      polaris:
+        condition: service_healthy
+      setup_bucket:
+        condition: service_completed_successfully
+    networks:
+      - lakehouse_net
+    environment:
+      - POLARIS_REALM=${POLARIS_REALM:-POLARIS}
+      - POLARIS_ROOT_CLIENT_ID=${POLARIS_ROOT_CLIENT_ID:-root}
+      - POLARIS_ROOT_CLIENT_SECRET=${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
+      - POLARIS_CATALOG_NAME=${POLARIS_CATALOG_NAME:-lakehouse_catalog}
+      - S3_BUCKET=${S3_BUCKET:-spark1}
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        apk add --no-cache jq
+
+        echo "Obtaining Polaris root access token..."
+        TOKEN_RESPONSE=$$(curl --fail-with-body -s -S -X POST http://polaris:8181/api/catalog/v1/oauth/tokens \
+          -H 'Content-Type: application/x-www-form-urlencoded' \
+          -d "grant_type=client_credentials&client_id=$$POLARIS_ROOT_CLIENT_ID&client_secret=$$POLARIS_ROOT_CLIENT_SECRET&scope=PRINCIPAL_ROLE:ALL")
+        TOKEN=$$(echo "$$TOKEN_RESPONSE" | jq -r '.access_token')
+        if [ -z "$$TOKEN" ] || [ "$$TOKEN" = "null" ]; then
+          echo "Failed to obtain token" >&2
+          echo "$$TOKEN_RESPONSE" >&2
+          exit 1
+        fi
+
+        echo "Checking whether catalog '$$POLARIS_CATALOG_NAME' exists..."
+        EXISTING=$$(curl --fail-with-body -s -S http://polaris:8181/api/management/v1/catalogs \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Polaris-Realm: $$POLARIS_REALM" \
+          -H 'Accept: application/json' | jq -r --arg name "$$POLARIS_CATALOG_NAME" '.catalogs[]?.name | select(. == $$name)' || true)
+
+        if [ "$$EXISTING" = "$$POLARIS_CATALOG_NAME" ]; then
+          echo "Catalog already exists. Skipping create."
+          exit 0
+        fi
+
+        echo "Creating catalog '$$POLARIS_CATALOG_NAME'..."
+        PAYLOAD=$$(jq -n \
+          --arg catalog "$$POLARIS_CATALOG_NAME" \
+          --arg bucket "$$S3_BUCKET" \
+          '{
+            catalog: {
+              name: $$catalog,
+              type: "INTERNAL",
+              readOnly: false,
+              properties: {
+                "default-base-location": ("s3://" + $$bucket)
+              },
+              storageConfigInfo: {
+                storageType: "S3",
+                allowedLocations: [("s3://" + $$bucket)],
+                endpoint: "http://minio:9000",
+                endpointInternal: "http://minio:9000",
+                pathStyleAccess: true
+              }
+            }
+          }')
+
+        RESPONSE=$$(curl --fail-with-body -s -S -X POST http://polaris:8181/api/management/v1/catalogs \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Polaris-Realm: $$POLARIS_REALM" \
+          -H 'Accept: application/json' \
+          -H 'Content-Type: application/json' \
+          -d "$$PAYLOAD")
+        echo "Catalog created."
+        echo "$$RESPONSE" | jq -c '.' >/dev/null
 
   # 3. Spark (PySpark Environment with Iceberg)
   # Uses an image pre-loaded with Spark, Iceberg, Nessie, and S3 JARs
@@ -35,23 +151,136 @@ services:
     image: tabulario/spark-iceberg:3.5.5_1.8.1
     container_name: spark-iceberg
     networks:
-      - nessie_net
+      - lakehouse_net
     environment:
       # Credentials for Nessie/MinIO access
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_S3_ENDPOINT=http://minio:9000
+      - POLARIS_URI=http://polaris:8181/api/catalog
+      - POLARIS_CATALOG_NAME=${POLARIS_CATALOG_NAME:-lakehouse_catalog}
+      - POLARIS_CREDENTIAL=${POLARIS_ROOT_CLIENT_ID:-root}:${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
+      - POLARIS_SCOPE=PRINCIPAL_ROLE:ALL
     ports:
       - "4040-4045:4040-4045" # Spark Web UI
     tty: true # Required for interactive shell
     volumes:
-      # Mount extension JARs and scripts
-      - ./jars/nessie-spark-extensions-3.5_2.12-0.106.0.jar:/opt/spark/jars/nessie-spark-extensions-3.5_2.12-0.106.0.jar
-      - ./python-scripts/spark-iceberg-nessie_test.py:/opt/spark/python-scripts/spark-iceberg-nessie_test.py
-      - ${USER_DATA_PATH}:${USER_DATA_PATH}
+      # Mount scripts
+      - ./python-scripts:/opt/spark/python-scripts
+      - ${USER_DATA_PATH:-./user_data}:/user_data
       - ./nuscenes_experiment:/opt/spark/nuscenes_experiment # For Iceberg Experiment
     # Keep container running without starting Thrift server
     entrypoint: /bin/sh -c "tail -f /dev/null"
 
+  # 4. Trino (Query engine)
+  trino:
+    image: trinodb/trino:479
+    container_name: trino
+    networks:
+      - lakehouse_net
+    depends_on:
+      polaris-setup:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - POLARIS_CATALOG_NAME=${POLARIS_CATALOG_NAME:-lakehouse_catalog}
+      - POLARIS_ROOT_CLIENT_ID=${POLARIS_ROOT_CLIENT_ID:-root}
+      - POLARIS_ROOT_CLIENT_SECRET=${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
+    volumes:
+      - ./trino/etc:/etc/trino
+      - trino_data:/data/trino
+
+  # 5. Superset (BI)
+  superset-db:
+    image: postgres:15
+    container_name: superset-db
+    networks:
+      - lakehouse_net
+    environment:
+      - POSTGRES_DB=${SUPERSET_DB_NAME:-superset}
+      - POSTGRES_USER=${SUPERSET_DB_USER:-superset}
+      - POSTGRES_PASSWORD=${SUPERSET_DB_PASSWORD:-superset}
+    volumes:
+      - superset_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPERSET_DB_USER:-superset} -d ${SUPERSET_DB_NAME:-superset}"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: superset-redis
+    networks:
+      - lakehouse_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 10s
+      retries: 30
+
+  superset-init:
+    build: ./superset
+    container_name: superset-init
+    networks:
+      - lakehouse_net
+    depends_on:
+      superset-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY:-this_is_a_very_secret_key}
+      - SUPERSET_CONFIG_PATH=/app/superset_config.py
+      - SUPERSET__SQLALCHEMY_DATABASE_URI=postgresql+psycopg2://${SUPERSET_DB_USER:-superset}:${SUPERSET_DB_PASSWORD:-superset}@superset-db:5432/${SUPERSET_DB_NAME:-superset}
+      - ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:-admin}
+      - SUPERSET_LOAD_EXAMPLES=${SUPERSET_LOAD_EXAMPLES:-no}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SUPERSET_ENV=production
+    volumes:
+      - superset_home:/app/superset_home
+      - ./superset/superset_config.py:/app/superset_config.py:ro
+    command: ["/app/docker/docker-init.sh"]
+    restart: "no"
+
+  superset:
+    build: ./superset
+    container_name: superset
+    networks:
+      - lakehouse_net
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    ports:
+      - "8088:8088"
+    environment:
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY:-this_is_a_very_secret_key}
+      - SUPERSET_CONFIG_PATH=/app/superset_config.py
+      - SUPERSET__SQLALCHEMY_DATABASE_URI=postgresql+psycopg2://${SUPERSET_DB_USER:-superset}:${SUPERSET_DB_PASSWORD:-superset}@superset-db:5432/${SUPERSET_DB_NAME:-superset}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SUPERSET_ENV=production
+    volumes:
+      - superset_home:/app/superset_home
+      - ./superset/superset_config.py:/app/superset_config.py:ro
+    command: ["/app/docker/entrypoints/run-server.sh"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
 networks:
-  nessie_net:
+  lakehouse_net:
+
+volumes:
+  superset_home:
+  superset_db_data:
+  trino_data:

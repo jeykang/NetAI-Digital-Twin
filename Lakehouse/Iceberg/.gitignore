@@ -1,0 +1,53 @@
+# -----------------------------
+# Secrets / local configuration
+# -----------------------------
+.env
+.env.*
+!.env.example
+example.env
+
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.venv/
+venv/
+.envrc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------
+# Jupyter
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# OS / editor
+# -----------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# -----------------------------
+# Lakehouse stack generated data
+# -----------------------------
+minio_data/
+trino_data/
+
+# Superset data (metadata DB uses a named volume by default, but keep these ignored
+# in case someone switches back to bind mounts)
+superset_home/
+superset_db_data/
+
+# Logs
+*.log
+logs/
+
+# nuScenes
+user_data/

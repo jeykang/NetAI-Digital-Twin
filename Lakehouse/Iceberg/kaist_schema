@@ -1,0 +1,122 @@
+# KAIST / MOTIE E2E Data Schema Draft Analysis
+
+# ==============================
+# CORE HIERARCHY
+# ==============================
+Table: Session
+  Columns:
+    - session_id: str (Primary Key)
+    - session_name: str
+    - clip_id_list: List<str> (References Clip.clip_id)
+
+Table: Clip
+  Columns:
+    - clip_id: str (Primary Key)
+    - session_id: str (Foreign Key -> Session.session_id)
+    - clip_idx: int
+    - frame_id_list: List<str> (References Frame.frame_id)
+    - date: str
+  Relationships:
+    - Belongs to Session
+    - Has many Frames
+    - Has Calibration data
+    - Linked to HDMap
+
+Table: Frame
+  Columns:
+    - frame_id: str (Primary Key)
+    - clip_id: str (Foreign Key -> Clip.clip_id)
+    - frame_idx: int
+    - sensor_timestamps: List<int>
+  Relationships:
+    - Belongs to Clip
+    - Central hub for all Sensor and Annotation tables below
+
+# ==============================
+# SENSORS (RAW DATA)
+# ==============================
+Table: Calibration
+  Columns:
+    - clip_id: str (Foreign Key -> Clip.clip_id)
+    - sensor_name: str
+    - extrinsics: SE3 (Spatial Pose Type)
+    - camera_intrinsics: Matrix3x3
+
+Table: Camera
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - system_timestamp: int
+    - sensor_timestamp: int
+    - camera_name: str
+    - filename: str (Path to image file)
+
+Table: Lidar
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - system_timestamp: int
+    - sensor_timestamp: int
+    - filename: str (Path to pointcloud file)
+
+Table: Radar
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - system_timestamp: int
+    - sensor_timestamp: int
+    - radar_name: str
+    - filename: str (Path to radar data file)
+
+# ==============================
+# ANNOTATIONS (GROUND TRUTH)
+# ==============================
+Table: Category
+  Columns:
+    - category: str (Primary Key)
+
+Table: DynamicObject
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - boxes_3d: List<Float>
+  Relationships:
+    - Links to Category table
+
+Table: Occupancy
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - ... (Implicit specific occupancy data)
+
+Table: Motion
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str (Redundant FK)
+    - ... (Implicit specific motion data)
+
+Table: EgoMotion (Annotation Level)
+  Columns:
+    - frame_id: str (Foreign Key -> Frame.frame_id)
+    - clip_id: str
+    - session_id: str
+    - translation: (x,y,z) tuple/struct
+    - rotation: quat (Quaternion struct)
+
+# ==============================
+# ASSOCIATED METADATA
+# ==============================
+Table: HDMap
+  Columns:
+    - clip_id: str (Foreign Key -> Clip.clip_id)
+    - filename: str (Path to map asset)
+    - city: str
+    - site: str
+
+Table: Session_EgoMotion (Session Summary Level)
+  Columns:
+    - session_id: str (Foreign Key -> Session.session_id)
+    - translation: (x,y,z)
+    - rotation: quat
+    - start: (x,y,z)
+    - goal: (x,y,z)

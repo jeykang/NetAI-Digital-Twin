@@ -170,6 +170,7 @@ services:
       - ./python-scripts:/opt/spark/python-scripts
       - ${USER_DATA_PATH:-./user_data}:/user_data
       - ./nuscenes_experiment:/opt/spark/nuscenes_experiment # For Iceberg Experiment
+      - ./kaist_ingestion:/opt/spark/kaist_ingestion # KAIST E2E Dataset Ingestion Pipeline
     # Keep container running without starting Thrift server
     entrypoint: /bin/sh -c "tail -f /dev/null"
 

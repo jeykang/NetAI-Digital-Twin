@@ -51,3 +51,5 @@ logs/
 
 # nuScenes
 user_data/
+
+kaist_ingestion/

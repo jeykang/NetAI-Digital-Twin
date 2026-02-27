@@ -169,5 +169,7 @@ The S3FileIO configuration is compatible with Ceph RADOS Gateway.
 ## See Also
 
 - [KAIST_INGESTION_PLAN.md](./KAIST_INGESTION_PLAN.md) - Detailed analysis and design document
+- [KAIST_LAKEHOUSE_COMPATIBILITY_REPORT.md](./KAIST_LAKEHOUSE_COMPATIBILITY_REPORT.md) - Compatibility analysis and scalability projections
 - Parent [README.md](../README.md) - Lakehouse architecture overview
-- [nuscenes_experiment](../nuscenes_experiment/) - Performance benchmarks
+- [nuscenes_experiment](../nuscenes_experiment/) - nuScenes scalability benchmarks (3 strategies × 4 scale factors)
+- [benchmarks/](../benchmarks/) - KAIST AD workload benchmarks (Gold vs. Silver, partition pruning, temporal replay, time travel, column metrics)

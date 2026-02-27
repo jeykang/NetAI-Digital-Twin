@@ -344,6 +344,11 @@ class DataValidator:
             silver, "lidar", "clip_id", "frame_id", "sensor_timestamp"
         ))
         
+        # Domain-specific: quaternion normalization on ego_motion rotation
+        report.add(self.check_quaternion_normalized(
+            silver, "ego_motion", "rotation", tolerance=0.01
+        ))
+        
         return report
     
     def validate_gold_layer(self) -> ValidationReport:

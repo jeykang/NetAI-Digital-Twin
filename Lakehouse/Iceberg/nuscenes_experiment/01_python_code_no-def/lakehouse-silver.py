@@ -5,51 +5,43 @@ import sys
 import time
 
 # =============================================================================
-# [PART 1] Environment & Spark Init (사용자 설정 유지)
+# [PART 1] Environment & Spark Init (Polaris REST Catalog)
 # =============================================================================
-aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 s3_endpoint = os.getenv("AWS_S3_ENDPOINT", "http://minio:9000")
-nessie_uri = os.getenv("NESSIE_URI", "http://nessie:19120/api/v1")
+polaris_uri = os.getenv("POLARIS_URI", "http://polaris:8181/api/catalog")
+polaris_warehouse = os.getenv("POLARIS_CATALOG_NAME", "lakehouse_catalog")
+polaris_credential = os.getenv("POLARIS_CREDENTIAL", "root:s3cr3t")
+polaris_scope = os.getenv("POLARIS_SCOPE", "PRINCIPAL_ROLE:ALL")
 
 # 데이터 경로 확인
-RAW_DATA_PATH = "/mnt/kkr/iceberg/datasets/nuscenes_v1.0-mini/v1.0-mini" 
+RAW_DATA_PATH = "/user_data/nuscenes-mini/v1.0-mini/v1.0-mini"
 
-if not aws_access_key or not aws_secret_key:
-    print("Error: AWS Access Key or Secret Key is missing in environment variables.")
-    sys.exit(1)
+catalog = "iceberg"
 
 spark = SparkSession.builder \
-    .appName("NessieMinioSpark") \
-    .config('spark.sql.extensions', 'org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.projectnessie.spark.extensions.NessieSparkSessionExtensions') \
-    .config('spark.sql.catalog.spark_catalog', 'org.apache.iceberg.spark.SparkCatalog') \
-    .config('spark.sql.catalog.spark_catalog.catalog-impl', 'org.apache.iceberg.nessie.NessieCatalog') \
-    .config('spark.sql.catalog.spark_catalog.uri', nessie_uri) \
-    .config('spark.sql.catalog.spark_catalog.warehouse', 's3://spark1') \
-    .config('spark.sql.catalog.spark_catalog.io-impl', 'org.apache.iceberg.aws.s3.S3FileIO') \
-    .config('spark.sql.catalog.spark_catalog.s3.endpoint', s3_endpoint) \
-    .config('spark.sql.catalog.spark_catalog.s3.path-style-access', 'true') \
-    .config('spark.sql.defaultCatalog', 'spark_catalog') \
-    .config('spark.sql.catalog.nessie', 'org.apache.iceberg.spark.SparkCatalog') \
-    .config('spark.sql.catalog.nessie.warehouse', 's3://spark1') \
-    .config('spark.sql.catalog.nessie.catalog-impl', 'org.apache.iceberg.nessie.NessieCatalog') \
-    .config('spark.sql.catalog.nessie.io-impl', 'org.apache.iceberg.aws.s3.S3FileIO') \
-    .config('spark.sql.catalog.nessie.uri', nessie_uri) \
-    .config('spark.sql.catalog.nessie.ref', 'main') \
-    .config('spark.sql.catalog.nessie.cache-enabled', 'false') \
-    .config('spark.sql.catalog.nessie.s3.endpoint', s3_endpoint) \
-    .config('spark.sql.catalog.nessie.s3.region', aws_region) \
-    .config('spark.sql.catalog.nessie.s3.path-style-access', 'true') \
-    .config('spark.sql.catalog.nessie.s3.access-key-id', aws_access_key) \
-    .config('spark.sql.catalog.nessie.s3.secret-access-key', aws_secret_key) \
-    .config('spark.hadoop.fs.s3a.access.key', aws_access_key) \
-    .config('spark.hadoop.fs.s3a.secret.key', aws_secret_key) \
-    .config('spark.hadoop.fs.s3a.endpoint', s3_endpoint) \
-    .config('spark.hadoop.fs.s3a.path.style.access', 'true') \
-    .config('spark.hadoop.fs.s3a.connection.ssl.enabled', 'false') \
-    .config('spark.hadoop.fs.s3a.impl', 'org.apache.hadoop.fs.s3a.S3AFileSystem') \
-    .config('spark.hadoop.fs.s3a.aws.credentials.provider', 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider') \
+    .appName("Polaris-Iceberg-Silver") \
+    .config("spark.sql.defaultCatalog", catalog) \
+    .config(f"spark.sql.catalog.{catalog}", "org.apache.iceberg.spark.SparkCatalog") \
+    .config(f"spark.sql.catalog.{catalog}.catalog-impl", "org.apache.iceberg.rest.RESTCatalog") \
+    .config(f"spark.sql.catalog.{catalog}.uri", polaris_uri) \
+    .config(f"spark.sql.catalog.{catalog}.warehouse", polaris_warehouse) \
+    .config(f"spark.sql.catalog.{catalog}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO") \
+    .config(f"spark.sql.catalog.{catalog}.s3.endpoint", s3_endpoint) \
+    .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true") \
+    .config(f"spark.sql.catalog.{catalog}.s3.access-key-id", aws_access_key) \
+    .config(f"spark.sql.catalog.{catalog}.s3.secret-access-key", aws_secret_key) \
+    .config(f"spark.sql.catalog.{catalog}.credential", polaris_credential) \
+    .config(f"spark.sql.catalog.{catalog}.scope", polaris_scope) \
+    .config("spark.hadoop.fs.s3a.endpoint", s3_endpoint) \
+    .config("spark.hadoop.fs.s3a.access.key", aws_access_key) \
+    .config("spark.hadoop.fs.s3a.secret.key", aws_secret_key) \
+    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
+    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+    .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
     .getOrCreate()
 
 # =============================================================================
@@ -63,12 +55,10 @@ print(">>> [Lakehouse] Phase 1: 데이터 적재 (ETL & Denormalization)")
 setup_start = time.time()
 
 # Namespace 생성
-spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.nusc_db")
+spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.nusc_exp")
 
 try:
     # 테이블이 이미 있는지 확인 (테스트용)
-    # spark.table("nessie.nusc_db.sample_data") # 이 부분은 주석 처리하거나 에러 핸들링을 위해 둠
-    # print("Tables might exist. Attempting to overwrite...")
     pass
 except:
     pass
@@ -99,7 +89,7 @@ df_sample_data_enriched = df_sample_data.join(
 # =========================================================
 # [실험 변수] 데이터 스케일 팩터
 # =========================================================
-SCALE_FACTOR = 10 
+SCALE_FACTOR = 7
 
 def scale_df(df, factor):
     if factor <= 1: return df
@@ -109,35 +99,20 @@ print(f">>> [Experiment] Scaling Key Tables by {SCALE_FACTOR}x (others keep 1x) 
 
 # 1. 참조 테이블 (Reference Tables) - 스케일링 하지 않음 (Python Dictionary 동작 모사)
 # samples, instances, category는 1배 유지
-df_sample.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.samples")
-df_category.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.category")
-df_instance.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.instances")
+df_sample.write.format("iceberg").mode("overwrite").saveAsTable(f"{catalog}.nusc_exp.samples")
+df_category.write.format("iceberg").mode("overwrite").saveAsTable(f"{catalog}.nusc_exp.category")
+df_instance.write.format("iceberg").mode("overwrite").saveAsTable(f"{catalog}.nusc_exp.instances")
 
 # 2. 팩트 테이블 (Fact Tables) - 스케일링 적용 (데이터 폭증 유발)
 # sample_data와 annotations만 늘려서 10 * 10 = 100배 효과를 냄
 scale_df(df_sample_data_enriched, SCALE_FACTOR).write.format("iceberg") \
     .partitionBy("channel") \
     .mode("overwrite") \
-    .saveAsTable("nessie.nusc_db.sample_data")
+    .saveAsTable(f"{catalog}.nusc_exp.sample_data")
 
-scale_df(df_annotation, SCALE_FACTOR).write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.annotations")
+scale_df(df_annotation, SCALE_FACTOR).write.format("iceberg").mode("overwrite").saveAsTable(f"{catalog}.nusc_exp.annotations")
 
 print(f"Data Ingestion Finished: {time.time() - setup_start:.2f}s")
-
-# # 3. Iceberg 저장 [수정된 부분: save -> saveAsTable]
-# # saveAsTable은 테이블이 없으면 생성(Create), 있으면 덮어쓰기(Overwrite)를 수행합니다.
-# df_sample.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.samples")
-
-# df_sample_data_enriched.write.format("iceberg") \
-#     .partitionBy("channel") \
-#     .mode("overwrite") \
-#     .saveAsTable("nessie.nusc_db.sample_data")
-    
-# df_annotation.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.annotations")
-# df_category.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.category")
-# df_instance.write.format("iceberg").mode("overwrite").saveAsTable("nessie.nusc_db.instances")
-
-# print(f"Data Ingestion Finished: {time.time() - setup_start:.2f}s")
 
 # -----------------------------------------------------------------------------
 # 3. Phase 2: Experiment (Query)
@@ -145,20 +120,20 @@ print(f"Data Ingestion Finished: {time.time() - setup_start:.2f}s")
 print(">>> [Lakehouse] Phase 2: 실험 시작 - 모델 학습 데이터셋 구성 쿼리")
 query_start = time.time()
 
-query = """
+query = f"""
 SELECT 
     sd.filename as img_path,
     a.translation,
     a.size,
     a.rotation
-FROM nessie.nusc_db.samples s
-JOIN nessie.nusc_db.sample_data sd 
+FROM {catalog}.nusc_exp.samples s
+JOIN {catalog}.nusc_exp.sample_data sd 
     ON s.token = sd.sample_token
-JOIN nessie.nusc_db.annotations a 
+JOIN {catalog}.nusc_exp.annotations a 
     ON s.token = a.sample_token
-JOIN nessie.nusc_db.instances i 
+JOIN {catalog}.nusc_exp.instances i 
     ON a.instance_token = i.token
-JOIN nessie.nusc_db.category c 
+JOIN {catalog}.nusc_exp.category c 
     ON i.category_token = c.token
 WHERE 
     sd.channel = 'CAM_FRONT' 

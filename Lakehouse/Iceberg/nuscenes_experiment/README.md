@@ -1,11 +1,10 @@
 # Query Performance & Scalability Analysis: Apache Iceberg Lakehouse
 
-<Figure size 3600x2100 with 1 Axes><img width="3552" height="2052" alt="image" src="https://github.com/user-attachments/assets/067cc607-cc50-4e69-8a4b-ffa004b839d1" />
-
-
 This project investigates the impact of **data modeling strategies** on query performance and **scalability** within an **Apache Iceberg Data Lakehouse**.
 
-The experiments utilize the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** autonomous driving dataset to compare performance across three distinct data processing strategies: **Pure Python (Nested Loop)**, **Spark Iceberg (Standard Join)**, and **Spark Iceberg (Optimized Layout)**.
+> **Infrastructure:** Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO (S3). All results collected on the current Polaris-based stack.
+
+The experiments utilize the **[nuScenes v1.0-mini](https://www.nuscenes.org/nuscenes)** autonomous driving dataset to compare performance across three distinct data processing strategies: **Python Baseline (Nested Loop)**, **Silver JOIN (Normalized)**, and **Gold (Pre-Joined)**.
 
 ---
 
@@ -44,10 +43,10 @@ This research compares three architectural approaches to handling this complex m
 
 ---
 
-### Phase 2: Spark Iceberg (Standard Join)
+### Phase 2: Spark Iceberg — Silver JOIN (Normalized)
 
 * **Modeling Strategy:** **Normalized Tables (Runtime Join)**.
-* Data is migrated 1:1 into separate Iceberg tables (e.g., `nessie.nusc_db.samples`, `nessie.nusc_db.annotations`).
+* Data is migrated 1:1 into separate Iceberg tables (e.g., `iceberg.nusc_exp.samples`, `iceberg.nusc_exp.annotations`).
 * **Optimization:** The `sample_data` table is **partitioned by `channel`**, enabling **Partition Pruning** during sensor data retrieval.
 
 * **Processing Method:** **Distributed Runtime Joins**.
@@ -57,10 +56,10 @@ This research compares three architectural approaches to handling this complex m
 
 ---
 
-### Phase 3: Spark Iceberg (Optimized Layout)
+### Phase 3: Spark Iceberg — Gold (Pre-Joined)
 
 * **Modeling Strategy:** **Denormalized Table (Pre-joined)**.
-* All necessary features (Image paths, 3D Boxes, Categories, Channels) are **pre-computed** into a single table: `nessie.nusc_db.sample_data_gold`.
+* All necessary features (Image paths, 3D Boxes, Categories, Channels) are **pre-computed** into a single table: `iceberg.nusc_exp.gold_train_set`.
 * **Optimization:** The entire table is physically **partitioned by `channel`**, strictly aligning data storage with the query access pattern.
 
 * **Processing Method:** **Zero-Join & Partition Pruning**.
@@ -71,9 +70,9 @@ This research compares three architectural approaches to handling this complex m
 
 ---
 
-## ❄️ 3. Optimized Schema Design (Denormalized)
+## ❄️ 3. Gold Table Schema Design (Denormalized)
 
-The **Optimized Layout** table is designed to support ML data loading workloads efficiently by consolidating all features into a flat schema.
+The **Gold (pre-joined)** table consolidates all features into a flat schema optimized for ML data loading.
 
 | Column Name | Data Type | Description | Source (Origin) |
 | --- | --- | --- | --- |
@@ -123,34 +122,50 @@ All three experiments produce the exact same dataset required for training 3D ob
 
 ## 📊 5. Performance Benchmarks
 
-We measured query execution time across different data scales to evaluate scalability. The **Data Scale Multiple ()** represents the complexity growth as both `sample_data` and `annotations` increase.
+We measured query execution time across **18 scale factors from 1× to 50×** to evaluate scalability. The scale factor represents linear growth of observation data (`sample_data` replicated n-times) while reference tables (`category`, `sensor`, etc.) remain at 1×, reflecting realistic data growth patterns where sensor observations accumulate faster than metadata.
+
+> **Methodology:** Python Baseline — median of 5 timed runs; Spark strategies — 1 warmup + median of 3 timed runs. Benchmark script: [`scalability_benchmark.py`](scalability_benchmark.py). Full data: [`scalability_results.json`](scalability_results.json).
+
+### Scalability Chart
+
+![Query Latency vs. Scale Factor](scalability_chart.png)
 
 ### Result Table
 
-| Data Scale Factor | Pure Python (Nested Loop) | Spark Iceberg (Normalized) | Spark Iceberg (Denormalized) |
-| --- | --- | --- | --- |
-| **1** | 0.0273s | 0.1613s | 0.0527s |
-| **9** | 0.2350s | 0.2279s | 0.0551s |
-| **25** | 0.6232s | 0.3634s | 0.0740s |
-| **49** | **1.1253s** | **0.5480s** | **0.0799s** |
+| SF | Effective Rows | Python Baseline (s) | Silver JOIN (s) | Gold (s) |
+|---:|---:|---:|---:|---:|
+| **1×** | 27,483 | 0.015 | 0.267 | 0.042 |
+| **2×** | 54,966 | 0.031 | 0.227 | 0.047 |
+| **3×** | 82,449 | 0.048 | 0.184 | 0.050 |
+| **4×** | 109,932 | 0.063 | 0.214 | 0.054 |
+| **5×** | 137,415 | 0.078 | 0.221 | 0.063 |
+| **6×** | 164,898 | 0.092 | 0.200 | 0.055 |
+| **7×** | 192,381 | 0.106 | 0.202 | 0.060 |
+| **8×** | 219,864 | 0.121 | 0.199 | 0.050 |
+| **9×** | 247,347 | 0.136 | 0.213 | 0.058 |
+| **10×** | 274,830 | 0.153 | 0.198 | 0.060 |
+| **15×** | 412,245 | 0.220 | 0.242 | 0.069 |
+| **20×** | 549,660 | 0.297 | 0.297 | 0.068 |
+| **25×** | 687,075 | 0.373 | 0.351 | 0.073 |
+| **30×** | 824,490 | 0.447 | 0.385 | 0.075 |
+| **35×** | 961,905 | 0.492 | 0.397 | 0.082 |
+| **40×** | 1,099,320 | 0.622 | 0.437 | 0.091 |
+| **45×** | 1,236,735 | 0.623 | 0.481 | 0.082 |
+| **50×** | 1,374,150 | **0.733** | **0.499** | **0.087** |
 
 ### Key Findings
 
-1. **Inefficiency of Pure Python:**
-* The **Pure Python (Nested Loop)** approach shows rapid linear degradation. The overhead of iterative dictionary lookups and sequential processing becomes the dominant bottleneck as  increases.
+1. **Python Baseline — Linear Degradation:**
+    * Performance degrades linearly from 0.015 s → 0.733 s (SF 1→50). Dictionary lookups and sequential processing become the dominant bottleneck. Scales at ~O(n).
 
+2. **Silver JOIN — Sub-Linear Growth with JIT Floor:**
+    * At low scale factors (SF ≤ 10), Spark's JIT warmup overhead dominates (~0.20 s floor). Beyond SF 20, the strategy surpasses the Python baseline and grows sub-linearly to 0.499 s at SF 50. The crossover occurs around **SF ≈ 20** where both strategies tie at ~0.297 s.
 
-2. **Cost of Standard Joins:**
-* The **Spark Iceberg (Standard Join)** strategy performs better than Python at scale but is still limited by distributed computing physics.
-* Even with Iceberg, the **Runtime Join costs** (Shuffling) between the partitioned sensor table and unpartitioned annotation table prevent linear scalability.
+3. **Gold Table — Near-Constant Latency:**
+    * The Gold (pre-joined) layout maintains **sub-100 ms latency** across the entire 1×–50× range (0.042 s → 0.087 s), achieving **~8.4× speedup** over Python and **~5.7× over Silver JOIN** at SF 50.
+    * Partition pruning by `channel` eliminates 83.3% of data at scan time; pre-computation eliminates all runtime joins. Growth is bounded by I/O scan of a single partition.
 
+4. **Scalability Gap Widens with Scale:**
+    * The performance gap between Gold and the other strategies grows with scale — at SF 1, Python is actually faster (0.015 s vs. 0.042 s) due to Spark's overhead. But by SF 10 the gap is 2.6× and by SF 50 it reaches 8.4×. This demonstrates that pre-computation costs are amortized quickly.
 
-3. **Superiority of Optimized Layout:**
-* The **Spark Iceberg (Optimized Layout)** demonstrates superior scalability, maintaining sub-second latency (**~0.08s**) even at 49x scale ().
-* By leveraging **Partition Pruning** (skipping files) and **Pre-computation** (eliminating joins), it outperforms the Baseline by approximately **14x** at scale.
-
-
-
-```
-
-```
+> **See also:** For KAIST AD-specific benchmarks (object detection, SLAM, sensor fusion), see [`benchmarks/benchmark_results.json`](../benchmarks/benchmark_results.json).

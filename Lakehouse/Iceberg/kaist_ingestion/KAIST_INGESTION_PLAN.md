@@ -192,22 +192,20 @@ This enables efficient range scans when querying frames within a time window.
 ### 4.2 File Structure
 
 ```
-python-scripts/
-├── kaist/
-│   ├── __init__.py
-│   ├── config.py                 # Environment & Spark configuration
-│   ├── schemas.py                # PySpark schema definitions
-│   ├── ingest_bronze.py          # Bronze layer ingestion
-│   ├── transform_silver.py       # Silver layer transformations
-│   ├── build_gold.py             # Gold table generation
-│   ├── validators.py             # Data quality checks
-│   └── utils/
-│       ├── __init__.py
-│       ├── spark_utils.py        # Reusable Spark utilities
-│       └── s3_utils.py           # S3/Ceph path handling
-│
-├── kaist_runner.py               # CLI entry point
-└── ingest_nuscenes_mini.py       # (existing)
+kaist_ingestion/
+├── __init__.py               # Package initialization
+├── config.py                 # Environment & Spark configuration
+├── schemas.py                # PySpark schema definitions
+├── ingest_bronze.py          # Bronze layer ingestion
+├── transform_silver.py       # Silver layer transformations
+├── build_gold.py             # Gold table generation
+├── validators.py             # Data quality validation (20 checks)
+├── kaist_runner.py           # CLI entry point
+└── simulate_from_nuscenes.py # Test data generator (nuScenes → KAIST)
+
+benchmarks/
+├── ad_workload_benchmark.py  # 5 AD-specific benchmark experiments
+└── benchmark_results.json    # Authoritative measured results
 ```
 
 ---
@@ -217,62 +215,62 @@ python-scripts/
 ### Phase 1: Infrastructure Setup (Week 1)
 
 #### 1.1 Create Base Configuration Module
-- [ ] Port existing Spark builder pattern from `ingest_nuscenes_mini.py`
-- [ ] Add Ceph-specific S3 configuration options
-- [ ] Create namespace management utilities
+- [x] Port existing Spark builder pattern from `ingest_nuscenes_mini.py`
+- [x] Add Ceph-specific S3 configuration options
+- [x] Create namespace management utilities
 
 #### 1.2 Define Schema Contracts
-- [ ] Create PySpark `StructType` definitions for all KAIST tables
-- [ ] Implement schema validation functions
+- [x] Create PySpark `StructType` definitions for all KAIST tables
+- [x] Implement schema validation functions
 - [ ] Create schema evolution handlers
 
 ### Phase 2: Bronze Layer Ingestion (Week 1-2)
 
 #### 2.1 Core Tables Ingestion
-- [ ] Session, Clip, Frame hierarchy
-- [ ] Category reference table
-- [ ] HDMap table
+- [x] Session, Clip, Frame hierarchy
+- [x] Category reference table
+- [x] HDMap table
 
 #### 2.2 Sensor Tables Ingestion
-- [ ] Camera table (with multi-sensor support)
-- [ ] Lidar table
-- [ ] Radar table (with multi-sensor support)
-- [ ] Calibration table
+- [x] Camera table (with multi-sensor support)
+- [x] Lidar table
+- [x] Radar table (with multi-sensor support)
+- [x] Calibration table
 
 #### 2.3 Annotation Tables Ingestion
-- [ ] DynamicObject table
-- [ ] Occupancy table
-- [ ] Motion table
-- [ ] EgoMotion tables (frame-level and session-level)
+- [x] DynamicObject table
+- [x] Occupancy table
+- [x] Motion table
+- [x] EgoMotion tables (frame-level and session-level)
 
 ### Phase 3: Silver Layer Transformation (Week 2-3)
 
 #### 3.1 Data Cleaning & Typing
-- [ ] Implement type coercion for SE3 poses and quaternions
-- [ ] Handle nullable fields and defaults
-- [ ] Deduplicate records
+- [x] Implement type coercion for SE3 poses and quaternions
+- [x] Handle nullable fields and defaults
+- [x] Deduplicate records
 
 #### 3.2 Partitioning & Optimization
-- [ ] Apply partition strategies per table
-- [ ] Configure sort orders
-- [ ] Optimize file sizes (target 128-256 MB per file)
+- [x] Apply partition strategies per table
+- [x] Configure sort orders
+- [x] Optimize file sizes (target 128-256 MB per file)
 
 ### Phase 4: Gold Layer Construction (Week 3-4)
 
 #### 4.1 Pre-Join Pipelines
-- [ ] Build `camera_annotations` gold table
-- [ ] Build `lidar_with_ego` gold table
-- [ ] Build `sensor_fusion_frame` gold table
+- [x] Build `camera_annotations` gold table
+- [x] Build `lidar_with_ego` gold table
+- [x] Build `sensor_fusion_frame` gold table
 
 #### 4.2 Performance Validation
-- [ ] Benchmark query performance against silver tables
-- [ ] Validate partition pruning effectiveness
-- [ ] Test with realistic ML data loading patterns
+- [x] Benchmark query performance against silver tables — **Gold 2–3× faster** (see `benchmarks/benchmark_results.json`)
+- [x] Validate partition pruning effectiveness — **83.3% data reduction confirmed**
+- [x] Test with realistic ML data loading patterns — 3 AD workloads (object detection, SLAM, sensor fusion)
 
 ### Phase 5: Automation & Monitoring (Week 4-5)
 
 #### 5.1 Scheduling
-- [ ] Create Docker-based runner for ingestion jobs
+- [x] Create Docker-based runner for ingestion jobs (`kaist_runner.py`)
 - [ ] Add support for incremental ingestion
 - [ ] Implement idempotent upsert logic
 
@@ -415,10 +413,10 @@ GROUP BY
 
 ## 9. Next Steps
 
-1. **Review this plan** with the KAIST institute to validate schema interpretation
-2. **Create skeleton code** for the ingestion pipeline
-3. **Set up test environment** with sample KAIST data
-4. **Iterate on gold table designs** based on actual ML workload requirements
+1. ~~**Review this plan** with the KAIST institute to validate schema interpretation~~ — Schema validated via simulated data; awaiting real dataset
+2. ~~**Create skeleton code** for the ingestion pipeline~~ ✅ Done (`kaist_ingestion/` package)
+3. ~~**Set up test environment** with sample KAIST data~~ ✅ Done (simulated from nuScenes, full pipeline runs in 24.29 s, 20/20 validations pass)
+4. **Iterate on gold table designs** based on actual ML workload requirements — Benchmark results in `benchmarks/benchmark_results.json` (Gold 2–3× faster than Silver JOINs)
 
 ---
 

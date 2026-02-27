@@ -18,7 +18,7 @@ from pyspark.sql.functions import (
     struct,
 )
 
-from .config import PipelineConfig, build_spark_session, create_namespaces
+from .config import PipelineConfig, apply_ad_table_optimizations, build_spark_session, create_namespaces
 
 
 class GoldTableBuilder:
@@ -30,6 +30,21 @@ class GoldTableBuilder:
     - lidar_with_ego: SLAM/Localization
     - sensor_fusion_frame: Multi-modal perception
     """
+    
+    # AD-specific sort orders per Gold table.
+    # Persisted in Iceberg metadata and maintained on all future writes.
+    GOLD_SORT_CONFIG = {
+        "camera_annotations": ["clip_id", "frame_idx"],     # Sequential frame access per camera
+        "lidar_with_ego": ["sensor_timestamp"],              # Temporal SLAM access
+        "sensor_fusion_frame": ["frame_idx"],                # Sequential frame replay
+    }
+    
+    # AD-specific columns requiring full min/max metrics for predicate pushdown
+    GOLD_METRICS_CONFIG = {
+        "camera_annotations": ["sensor_timestamp", "camera_name", "clip_id", "frame_idx"],
+        "lidar_with_ego": ["sensor_timestamp", "clip_id"],
+        "sensor_fusion_frame": ["clip_id", "frame_idx"],
+    }
     
     def __init__(self, spark: SparkSession, config: PipelineConfig):
         self.spark = spark
@@ -53,8 +68,13 @@ class GoldTableBuilder:
         table: str,
         partition_by: Optional[list] = None,
     ) -> int:
-        """Write a DataFrame to the Gold layer."""
+        """Write a DataFrame to the Gold layer with AD-specific optimizations."""
         full_table = self._gold_table(table)
+        
+        # Apply sort within partitions for temporal/sequential locality
+        sort_by = self.GOLD_SORT_CONFIG.get(table)
+        if sort_by:
+            df = df.sortWithinPartitions(*sort_by)
         
         writer = (
             df.writeTo(full_table)
@@ -68,6 +88,17 @@ class GoldTableBuilder:
             writer = writer.partitionedBy(*partition_by)
             
         writer.createOrReplace()
+        
+        # Apply AD-specific Iceberg optimizations (persisted for all future writes)
+        metrics = self.GOLD_METRICS_CONFIG.get(table, [])
+        apply_ad_table_optimizations(
+            self.spark,
+            full_table,
+            sort_columns=sort_by,
+            partition_columns=partition_by,
+            metrics_columns=metrics if metrics else None,
+            config=self.config.kaist,
+        )
         
         return self.spark.table(full_table).count()
     

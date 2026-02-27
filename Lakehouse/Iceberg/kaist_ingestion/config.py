@@ -7,7 +7,7 @@ Supports both MinIO (development) and Ceph (production) S3-compatible backends.
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
 from pyspark.sql import SparkSession
 
@@ -53,7 +53,7 @@ class KAISTConfig:
     """KAIST dataset-specific configuration."""
     
     # Source data location (mounted volume or S3 path)
-    source_path: str = field(default_factory=lambda: _env("KAIST_SOURCE_PATH", "/user_data/kaist"))
+    source_path: str = field(default_factory=lambda: _env("KAIST_SOURCE_PATH", "/user_data/kaist-simulated"))
     
     # Iceberg namespace names
     namespace_bronze: str = "kaist_bronze"
@@ -67,6 +67,12 @@ class KAISTConfig:
     # Ingestion behavior
     overwrite_existing: bool = True
     validate_on_ingest: bool = True
+    
+    # AD-Specific Iceberg Optimization Defaults
+    # Applied to all tables to optimize for autonomous driving access patterns
+    snapshot_min_to_keep: int = 10  # Training reproducibility via time travel
+    snapshot_max_age_hours: int = 168  # 7 days retention
+    write_distribution_mode: str = "hash"  # Distribute by partition key
 
 
 @dataclass
@@ -162,3 +168,80 @@ def create_namespaces(spark: SparkSession, config: PipelineConfig) -> None:
     ]:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{namespace}")
         print(f"Ensured namespace exists: {catalog}.{namespace}")
+
+
+def apply_ad_table_optimizations(
+    spark: SparkSession,
+    full_table: str,
+    sort_columns: Optional[List[str]] = None,
+    partition_columns: Optional[List[str]] = None,
+    metrics_columns: Optional[List[str]] = None,
+    config: Optional[KAISTConfig] = None,
+) -> None:
+    """
+    Apply AD-specific Iceberg table optimizations.
+
+    These optimizations are fundamental to the AD lakehouse design and ensure
+    that all ingested autonomous driving data is automatically optimized for
+    the dominant access patterns in AD/ML workloads:
+
+    1. Persisted sort orders — Iceberg-native write ordering ensures temporal/
+       sequential locality within partitions (critical for frame replay,
+       sensor stream reconstruction, and sequential training data loading).
+
+    2. Column-level metrics — Full min/max statistics on sensor timestamps,
+       frame indices, and sensor names enable Iceberg's predicate pushdown
+       to skip irrelevant data files during planning (before any I/O).
+
+    3. Snapshot retention — Retains table history for training dataset
+       reproducibility via Iceberg time travel (VERSION AS OF).
+
+    4. Write distribution mode — Hash-distributes writes by partition key
+       to minimize small files and maintain partition alignment.
+
+    These properties are persisted in Iceberg table metadata and apply to
+    all future writes (appends, overwrites), not just the initial load.
+
+    Args:
+        spark: Active SparkSession
+        full_table: Fully qualified table name (catalog.namespace.table)
+        sort_columns: Columns for Iceberg-native write sort order
+        partition_columns: Partition columns (determines distribution strategy)
+        metrics_columns: Columns needing full min/max metrics for predicate pushdown
+        config: KAIST config (uses defaults if None)
+    """
+    if config is None:
+        config = KAISTConfig()
+
+    # --- Table properties for AD optimization ---
+    props = {
+        "write.distribution-mode": config.write_distribution_mode,
+        "history.expire.min-snapshots-to-keep": str(config.snapshot_min_to_keep),
+        "history.expire.max-snapshot-age-ms": str(config.snapshot_max_age_hours * 3600 * 1000),
+        "write.metadata.metrics.default": "truncate(16)",
+    }
+
+    # Full min/max metrics for AD-critical columns (enables predicate pushdown
+    # on sensor timestamps, frame indices, clip boundaries, and sensor names)
+    if metrics_columns:
+        for col_name in metrics_columns:
+            props[f"write.metadata.metrics.column.{col_name}"] = "full"
+
+    props_sql = ", ".join(f"'{k}' = '{v}'" for k, v in props.items())
+    spark.sql(f"ALTER TABLE {full_table} SET TBLPROPERTIES ({props_sql})")
+
+    # --- Iceberg-native write sort order ---
+    # Persisted in table metadata; all future writes automatically maintain
+    # temporal/sequential ordering within partitions
+    if sort_columns:
+        order_clause = ", ".join(sort_columns)
+        if partition_columns:
+            # Distribute by partition key, sort locally within each partition
+            spark.sql(
+                f"ALTER TABLE {full_table} WRITE "
+                f"DISTRIBUTED BY PARTITION LOCALLY ORDERED BY {order_clause}"
+            )
+        else:
+            spark.sql(f"ALTER TABLE {full_table} WRITE ORDERED BY {order_clause}")
+
+    print(f"  [AD-OPT] Applied AD optimizations to {full_table}")

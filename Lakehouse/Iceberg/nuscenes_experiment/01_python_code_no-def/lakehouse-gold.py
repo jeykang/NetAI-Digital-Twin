@@ -5,49 +5,41 @@ import sys
 import time
 
 # =============================================================================
-# [PART 1] Environment & Spark Init
+# [PART 1] Environment & Spark Init (Polaris REST Catalog)
 # =============================================================================
-aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 s3_endpoint = os.getenv("AWS_S3_ENDPOINT", "http://minio:9000")
-nessie_uri = os.getenv("NESSIE_URI", "http://nessie:19120/api/v1")
-RAW_DATA_PATH = "/mnt/kkr/iceberg/datasets/nuscenes_v1.0-mini/v1.0-mini" 
+polaris_uri = os.getenv("POLARIS_URI", "http://polaris:8181/api/catalog")
+polaris_warehouse = os.getenv("POLARIS_CATALOG_NAME", "lakehouse_catalog")
+polaris_credential = os.getenv("POLARIS_CREDENTIAL", "root:s3cr3t")
+polaris_scope = os.getenv("POLARIS_SCOPE", "PRINCIPAL_ROLE:ALL")
+RAW_DATA_PATH = "/user_data/nuscenes-mini/v1.0-mini/v1.0-mini"
 
-if not aws_access_key or not aws_secret_key:
-    print("Error: AWS Access Key or Secret Key is missing in environment variables.")
-    sys.exit(1)
+catalog = "iceberg"
 
 spark = SparkSession.builder \
-    .appName("NessieMinioSpark") \
-    .config('spark.sql.extensions', 'org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.projectnessie.spark.extensions.NessieSparkSessionExtensions') \
-    .config('spark.sql.catalog.spark_catalog', 'org.apache.iceberg.spark.SparkCatalog') \
-    .config('spark.sql.catalog.spark_catalog.catalog-impl', 'org.apache.iceberg.nessie.NessieCatalog') \
-    .config('spark.sql.catalog.spark_catalog.uri', nessie_uri) \
-    .config('spark.sql.catalog.spark_catalog.warehouse', 's3://spark1') \
-    .config('spark.sql.catalog.spark_catalog.io-impl', 'org.apache.iceberg.aws.s3.S3FileIO') \
-    .config('spark.sql.catalog.spark_catalog.s3.endpoint', s3_endpoint) \
-    .config('spark.sql.catalog.spark_catalog.s3.path-style-access', 'true') \
-    .config('spark.sql.defaultCatalog', 'spark_catalog') \
-    .config('spark.sql.catalog.nessie', 'org.apache.iceberg.spark.SparkCatalog') \
-    .config('spark.sql.catalog.nessie.warehouse', 's3://spark1') \
-    .config('spark.sql.catalog.nessie.catalog-impl', 'org.apache.iceberg.nessie.NessieCatalog') \
-    .config('spark.sql.catalog.nessie.io-impl', 'org.apache.iceberg.aws.s3.S3FileIO') \
-    .config('spark.sql.catalog.nessie.uri', nessie_uri) \
-    .config('spark.sql.catalog.nessie.ref', 'main') \
-    .config('spark.sql.catalog.nessie.cache-enabled', 'false') \
-    .config('spark.sql.catalog.nessie.s3.endpoint', s3_endpoint) \
-    .config('spark.sql.catalog.nessie.s3.region', aws_region) \
-    .config('spark.sql.catalog.nessie.s3.path-style-access', 'true') \
-    .config('spark.sql.catalog.nessie.s3.access-key-id', aws_access_key) \
-    .config('spark.sql.catalog.nessie.s3.secret-access-key', aws_secret_key) \
-    .config('spark.hadoop.fs.s3a.access.key', aws_access_key) \
-    .config('spark.hadoop.fs.s3a.secret.key', aws_secret_key) \
-    .config('spark.hadoop.fs.s3a.endpoint', s3_endpoint) \
-    .config('spark.hadoop.fs.s3a.path.style.access', 'true') \
-    .config('spark.hadoop.fs.s3a.connection.ssl.enabled', 'false') \
-    .config('spark.hadoop.fs.s3a.impl', 'org.apache.hadoop.fs.s3a.S3AFileSystem') \
-    .config('spark.hadoop.fs.s3a.aws.credentials.provider', 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider') \
+    .appName("Polaris-Iceberg-Gold") \
+    .config("spark.sql.defaultCatalog", catalog) \
+    .config(f"spark.sql.catalog.{catalog}", "org.apache.iceberg.spark.SparkCatalog") \
+    .config(f"spark.sql.catalog.{catalog}.catalog-impl", "org.apache.iceberg.rest.RESTCatalog") \
+    .config(f"spark.sql.catalog.{catalog}.uri", polaris_uri) \
+    .config(f"spark.sql.catalog.{catalog}.warehouse", polaris_warehouse) \
+    .config(f"spark.sql.catalog.{catalog}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO") \
+    .config(f"spark.sql.catalog.{catalog}.s3.endpoint", s3_endpoint) \
+    .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true") \
+    .config(f"spark.sql.catalog.{catalog}.s3.access-key-id", aws_access_key) \
+    .config(f"spark.sql.catalog.{catalog}.s3.secret-access-key", aws_secret_key) \
+    .config(f"spark.sql.catalog.{catalog}.credential", polaris_credential) \
+    .config(f"spark.sql.catalog.{catalog}.scope", polaris_scope) \
+    .config("spark.hadoop.fs.s3a.endpoint", s3_endpoint) \
+    .config("spark.hadoop.fs.s3a.access.key", aws_access_key) \
+    .config("spark.hadoop.fs.s3a.secret.key", aws_secret_key) \
+    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
+    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+    .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
     .getOrCreate()
 
 # =============================================================================
@@ -99,7 +91,7 @@ df_gold_final = scale_df(df_gold_raw, SCALE_FACTOR)
 df_gold_final.write.format("iceberg") \
     .partitionBy("channel") \
     .mode("overwrite") \
-    .saveAsTable("nessie.nusc_db.gold_train_set")
+    .saveAsTable(f"{catalog}.nusc_exp.gold_train_set")
 
 print(f"Gold Table Ingestion Finished: {time.time() - setup_start:.2f}s")
 
@@ -110,9 +102,9 @@ print(">>> [Lakehouse] Phase 2: 실험 시작 - 단일 Gold 테이블 쿼리")
 query_start = time.time()
 
 # 조인이 전혀 없는 단순 필터링 쿼리
-query = """
+query = f"""
 SELECT img_path, translation, size, rotation
-FROM nessie.nusc_db.gold_train_set
+FROM {catalog}.nusc_exp.gold_train_set
 WHERE channel = 'CAM_FRONT' 
   AND category_name = 'human.pedestrian.adult'
 """

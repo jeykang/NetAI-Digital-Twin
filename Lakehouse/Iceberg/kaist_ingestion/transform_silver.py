@@ -22,7 +22,7 @@ from pyspark.sql.functions import (
     when,
 )
 
-from .config import PipelineConfig, build_spark_session, create_namespaces
+from .config import PipelineConfig, apply_ad_table_optimizations, build_spark_session, create_namespaces
 
 
 class SilverTransformer:
@@ -61,6 +61,21 @@ class SilverTransformer:
         "radar": ["clip_id", "frame_id", "sensor_timestamp"],
         "dynamic_object": ["clip_id", "frame_id"],
         "ego_motion": ["clip_id", "frame_id"],
+    }
+    
+    # AD-specific columns requiring full min/max metrics for predicate pushdown.
+    # These enable Iceberg to skip data files based on sensor timestamp ranges,
+    # frame indices, clip boundaries, and sensor name filters — the dominant
+    # predicate patterns in autonomous driving ML data loading.
+    METRICS_CONFIG = {
+        "frame": ["clip_id", "frame_idx"],
+        "camera": ["sensor_timestamp", "clip_id", "frame_id", "camera_name"],
+        "lidar": ["sensor_timestamp", "clip_id", "frame_id"],
+        "radar": ["sensor_timestamp", "clip_id", "frame_id", "radar_name"],
+        "calibration": ["clip_id", "sensor_name"],
+        "dynamic_object": ["clip_id", "frame_id"],
+        "ego_motion": ["clip_id", "frame_id"],
+        "clip": ["session_id", "clip_id"],
     }
     
     def __init__(self, spark: SparkSession, config: PipelineConfig):
@@ -119,6 +134,17 @@ class SilverTransformer:
             writer = writer.partitionedBy(*partitions)
         
         writer.createOrReplace()
+        
+        # Apply AD-specific Iceberg optimizations (persisted for all future writes)
+        metrics = self.METRICS_CONFIG.get(table, [])
+        apply_ad_table_optimizations(
+            self.spark,
+            full_table,
+            sort_columns=sort_by,
+            partition_columns=partitions,
+            metrics_columns=metrics if metrics else None,
+            config=self.config.kaist,
+        )
         
         return self.spark.table(full_table).count()
     

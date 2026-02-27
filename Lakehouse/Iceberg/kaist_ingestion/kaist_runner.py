@@ -120,7 +120,7 @@ def main():
     
     parser.add_argument(
         "command",
-        choices=["all", "bronze", "silver", "gold", "validate"],
+        choices=["all", "bronze", "silver", "gold", "validate", "benchmark"],
         help="Pipeline command to run",
     )
     
@@ -148,6 +148,10 @@ def main():
             success = all(v >= 0 for v in results.values())
         elif args.command == "validate":
             success = run_validate(layers=args.layers)
+        elif args.command == "benchmark":
+            from benchmarks.ad_workload_benchmark import main as run_benchmarks
+            run_benchmarks()
+            success = True
         else:
             parser.print_help()
             success = False

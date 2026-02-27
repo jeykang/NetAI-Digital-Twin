@@ -3,8 +3,8 @@ import os
 import time
 
 # 데이터 경로
-SCALE_FACTOR = 5  # 여기를 바꿔가며 실험하세요!
-RAW_DATA_PATH = "/mnt/kkr/iceberg/datasets/nuscenes_v1.0-mini/v1.0-mini"
+SCALE_FACTOR = 7  # 여기를 바꿔가며 실험하세요!
+RAW_DATA_PATH = "/user_data/nuscenes-mini/v1.0-mini/v1.0-mini"
 
 def load_json(filename):
     with open(os.path.join(RAW_DATA_PATH, filename), 'r') as f:

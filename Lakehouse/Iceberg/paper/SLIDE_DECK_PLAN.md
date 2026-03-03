@@ -1,22 +1,17 @@
 # Slide Deck Plan: Data Lakehouse for Autonomous Driving Data Management
 
-> **Presentation context:** Government project (KAIST/MOTIE) progress review panel
-> **Audience:** Other participants in the government-funded project
-> **Tone:** Technical but accessible; emphasize practical value and measurable results
-> **Estimated duration:** 15–20 minutes (12 content slides + backup)
+> **Presentation context:** Government project (KAIST/MOTIE) quarterly development progress check-in
+> **Audience:** Other participants in the government-funded project — AI/ML researchers, not data engineers. They know the broad strokes of what our team does; this is the technical detail.
+> **Tone:** Progress report — here's what we built, here's how it performs, here are the open questions. Not a pitch.
+> **Format:** 4 poster-density slides — each one a self-contained reference sheet
+> **Estimated duration:** 15–20 minutes
 > **Date:** March 4, 2026
->
-> **Key difference from paper:** The KAIST dataset schema and lakehouse design
-> are for this project — no need to obscure the dataset origin. Present the
-> 3-level schema as the KAIST E2E dataset schema rather than a "proposed
-> generalization."
 
 ---
 
 ## Generated Figures
 
-All figures have been pre-generated at 200 DPI and are located in
-`paper/figures/`. Each figure reference below includes the exact filename.
+All figures pre-generated at 200 DPI in `paper/figures/`.
 
 | # | Filename | Content |
 |---|----------|---------|
@@ -31,381 +26,194 @@ All figures have been pre-generated at 200 DPI and are located in
 
 ---
 
-## Slide 1 — Title Slide
+## Slide 1 — Architecture, Data Model & Technology Stack
 
-**Layout:** Clean title slide, project logos if available (KAIST, MOTIE, NetAI)
+> *Everything about what we built — the system, the schema, the tech.*
 
-**Content:**
-- **Title:** "Fast, Scalable Data Infrastructure for Autonomous Driving ML Pipelines"
-- **Subtitle:** "Getting training data from raw sensors to your model — structured, validated, and fast"
-- **Presenter name & affiliation**
-- **Date:** March 4, 2026
-- **Project:** NetAI Digital Twin — Data Infrastructure Component
+**Layout:** Dense four-quadrant. Top-left: architecture figure. Top-right: data model figure. Bottom-left: schema reference table. Bottom-right: deployment detail. Title banner across the top.
 
-**Design notes:** Minimal, professional. Use a dark or navy background with white text. No figures.
+### Top Banner — Project Context
 
-> *Rationale for title change:* The original title ("Medallion-Architecture Data Lakehouse…") is meaningful to data engineers but opaque to AI researchers. The reframed title leads with what matters to the audience: getting training data to models quickly.
+> **What this is:** The data infrastructure component of the NetAI Digital Twin project. Takes raw KAIST E2E autonomous driving sensor data (14 entity types across cameras, LiDAR, radar, ego pose, annotations, maps) and transforms it into ML-ready tables via a three-layer pipeline (Bronze → Silver → Gold). Five-service Docker stack, single-command deployment.
 
----
+### Top-Left Quadrant — System Architecture
 
-## Slide 2 — Problem Statement & Motivation
+**Figure:** `paper/figures/architecture.png` (compact)
 
-**Layout:** Left–right split. Left: bullet points. Right: illustrative diagram or icon set.
+**Five-service stack (labeled on or beside figure):**
 
-**Title:** "The Problem: Managing AD Sensor Data at Scale"
+| Service | Technology | Version | Role (ML-user perspective) |
+|---------|-----------|---------|---------------------------|
+| **ETL Engine** | Apache Spark (PySpark) | 3.5.5 | Runs the 3-layer pipeline: raw JSON → ML-ready tables. Performs all joins and physical optimizations once so training code doesn't have to. |
+| **Table Format** | Apache Iceberg | 1.8.1 (v2) | ACID transactions, time travel (pin dataset versions), schema evolution, partition pruning, column-level statistics. The reason Gold queries are fast. |
+| **Catalog** | Apache Polaris | Latest | REST catalog — central registry so Spark, Trino, and Superset all see the same tables. No file-path wrangling. |
+| **Object Storage** | MinIO | 2025-09 | S3-compatible storage (dev). Swappable to Ceph or cloud S3 — code doesn't change. |
+| **Query + BI** | Trino 479 + Apache Superset | Latest | Interactive SQL and dashboards to explore the dataset without Python. E.g., `SELECT * FROM kaist_gold.camera_annotations WHERE camera_name = 'CAM_FRONT' AND category = 'pedestrian'` |
 
-**Left column — Key problems (bulleted, framed as ML pain points):**
-1. **Your training data is scattered:** A single training sample for 3D object detection requires data from 6+ separate files — camera paths, frame metadata, calibration, annotations, map info. Every `DataLoader.__getitem__` call has to stitch them together.
-2. **The stitching code doesn't scale:** The standard approach — Python `for` loops over JSON dictionaries — works at nuScenes-mini scale (40 K rows). At nuPlan scale (~20 TB), it's the training bottleneck.
-3. **Different models need different slices:** Object detection needs camera + 3D boxes. SLAM needs LiDAR + ego pose. Fusion needs everything. But the data is stored the same way regardless of which model is consuming it.
-4. **No reproducibility guarantees:** If someone adds new data mid-training, your dataset changes silently. There's no way to pin "the exact data I trained on" without manual file snapshots.
+**Deployment:** `docker compose up` → all 5 services + Polaris catalog initialization. Single `.env` file for configuration.
 
-**Right column — Visual illustration:**
-- Show a "typical ML workflow" diagram: 7 JSON files → Python `for` loop with arrows between them → slow DataLoader → model. Label the bottleneck.
-- OR show a comparison: left = "current: scattered files, manual joins" vs. right = "proposed: single query, pre-joined table"
+### Top-Right Quadrant — KAIST 3-Level Data Model
 
-**Speaker notes:** "If you've worked with nuScenes or any large AD dataset, you know this pain. To assemble one training sample for, say, BEVFormer, your data loader needs to find the camera image, look up the frame, cross-reference the calibration, find the matching annotations, and pull in HD map context. That's 6 file lookups per sample. The standard approach is Python loops over JSON dictionaries — it works fine on the mini split, but once you scale up, data loading becomes the bottleneck. And there's a reproducibility problem: if the dataset changes between experiment runs, you have no way to go back to the exact data you trained on."
+**Figure:** `paper/figures/data_model.png` (compact)
 
----
+**Hierarchy:** Session → Clip → Frame → Sensors/Annotations
+- Generalizes nuScenes' 2-level model (Scene → Sample) by adding Session level for multi-drive campaigns
+- **14 entity types total:**
+  - *3 Hierarchy:* Session, Clip, Frame
+  - *4 Sensors:* Camera, LiDAR, Radar, Ego Motion
+  - *4 Annotations:* Dynamic Object, Occupancy, Motion, Category
+  - *3 Metadata:* Calibration, HD Map, Session Ego Motion
+- **Named geometric structs:**
+  - **SE3** — 4×4 rigid transform (rotation 3×3 + translation 3D)
+  - **Quaternion** — (qw, qx, qy, qz), unit-norm enforced by validation
+  - **Box3D** — 7-DOF bounding box (center xyz + size wlh + yaw)
+  - **Translation3D** — (x, y, z)
 
-## Slide 3 — Approach Overview (High-Level)
+### Bottom-Left Quadrant — Full Schema Reference (14 Tables)
 
-**Layout:** Full-width horizontal pipeline diagram
+| Table | Primary Key | Key Fields | Silver Partition | Silver Sort |
+|-------|------------|------------|-----------------|-------------|
+| session | session_id | session_name, clip_id_list | — | — |
+| clip | clip_id | session_id, clip_idx, date | session_id | clip_idx |
+| frame | frame_id | clip_id, frame_idx, sensor_timestamps | clip_id | frame_idx |
+| calibration | clip_id + sensor_name | extrinsics (SE3), camera_intrinsics (3×3) | clip_id, sensor_name | — |
+| camera | frame_id + camera_name | clip_id, sensor_timestamp, filename | camera_name, clip_id | sensor_timestamp |
+| lidar | frame_id | clip_id, sensor_timestamp, filename | clip_id | sensor_timestamp |
+| radar | frame_id + radar_name | clip_id, sensor_timestamp, filename | radar_name, clip_id | sensor_timestamp |
+| ego_motion | frame_id | clip_id, translation (3D), rotation (Quat) | clip_id | sensor_timestamp |
+| dynamic_object | frame_id | clip_id, boxes_3d (Box3D[]), category | clip_id | sensor_timestamp |
+| category | category | (reference table, no FK) | — | — |
+| occupancy | frame_id | clip_id, occupancy_data* | clip_id | sensor_timestamp |
+| motion | frame_id | clip_id, motion_data* | clip_id | sensor_timestamp |
+| session_ego_motion | session_id | translation, rotation, start, goal | — | — |
+| hdmap | clip_id | filename, city, site | — | — |
 
-**Title:** "Our Approach: Domain-Specific Data Lakehouse"
+\* Placeholder schemas — to be refined with actual KAIST data. Silver skips 3 low-priority tables (occupancy, motion, session_ego_motion).
 
-**Content:**
-- **One-sentence summary at top:** "A data infrastructure that takes raw AD sensor data and progressively transforms it into ML-ready tables — so your training code reads one table, not six."
-- **Three contributions (numbered, large font, framed as what the audience gains):**
-  1. **Three-layer pipeline** (Raw → Cleaned → ML-ready) that automatically ingests, validates, and structures 14 AD entity types into queryable tables
-  2. **One table per ML task:** A single pre-built table for each of object detection, SLAM, and sensor fusion — no joins in your training code
-  3. **Scales where Python scripts don't:** Sub-100 ms data retrieval at 50× dataset scale, vs. 733 ms for the conventional Python approach (~8× faster)
+### Bottom-Right Quadrant — Docker Deployment Detail
 
-**Figure:** `paper/figures/medallion_pipeline.png` — placed below the three contributions, spanning full width.
-
-**Speaker notes:** "The idea is simple: instead of every training script re-implementing the same 6-table join to assemble its input data, we do that join once — at data ingestion time — and store the result as an ML-ready table. Your training code just reads one table. We do this through a three-layer pipeline: raw data goes in, cleaned and partitioned data comes out in the middle, and fully joined training-ready tables come out at the end. The result is data retrieval that stays under 100 milliseconds even at 50× scale, compared to 733 milliseconds with conventional Python scripts."
-
----
-
-## Slide 4 — System Architecture
-
-**Layout:** Figure-dominant (figure occupies ~65% of the slide)
-
-**Title:** "System Architecture: Five-Service Docker Stack"
-
-**Figure:** `paper/figures/architecture.png` — centered, large
-
-**Key callouts (3–4 bullets beside or below figure, explained in terms of what users interact with):**
-- **Spark (PySpark):** Runs the data pipeline — transforms raw JSON into ML-ready tables. This is where the joins and optimizations happen, once, so your training code doesn't have to.
-- **Polaris (Catalog):** A central registry so every tool sees the same tables. If Spark writes a Gold table, Trino and Superset can immediately query it — no file-path wrangling.
-- **MinIO (Storage):** S3-compatible object storage. In production, swappable to Ceph or cloud S3 — your code doesn't change.
-- **Trino + Superset:** *For you:* SQL query access and visual dashboards to explore the dataset without writing Python. E.g., "show me all frames from clip X where category = pedestrian."
-- **One command:** `docker compose up` launches everything.
-
-**Speaker notes:** "From your perspective as an ML researcher, the parts you'd interact with are: Trino, for running SQL queries to explore the data; Superset, for visual dashboards; and the Gold tables that your training code reads. Spark runs the pipeline behind the scenes. The key point is that all of these tools share the same catalog — so data written by Spark is immediately visible to Trino and Superset without copying anything. And the whole stack launches with a single docker-compose command."
-
----
-
-## Slide 5 — KAIST Data Model (3-Level Hierarchy)
-
-**Layout:** Figure-dominant with annotation sidebar
-
-**Title:** "KAIST E2E Data Model: 3-Level Hierarchy"
-
-**Figure:** `paper/figures/data_model.png` — large, centered
-
-**Sidebar annotations (3–4 bullets):**
-- **Session → Clip → Frame** hierarchy supports long-duration, multi-session autonomous driving recordings
-- Generalizes nuScenes' 2-level (Scene → Sample) model by adding the Session level for multi-drive campaigns
-- **14 entity types** total: 3 hierarchy (Session, Clip, Frame), 4 sensors (Camera, LiDAR, Radar, Ego Motion), 4 annotations (Dynamic Object, Occupancy, Motion, Category), 3 metadata (Calibration, HD Map, Session Ego Motion)
-- Named geometric structs: **SE3** (4×4 transform), **Quaternion** (qw,qx,qy,qz), **Box3D** (7-DOF bounding box), **Translation3D** (x,y,z)
-
-**Speaker notes:** "The KAIST E2E dataset uses a three-level hierarchy. A Session represents an entire driving session. Each Session contains multiple Clips — contiguous recording segments. Each Clip contains Frames — single time-steps. At the Frame level, we have all sensor modalities and annotations attached. This is richer than nuScenes' two-level model and supports the kind of long-duration, multi-session recordings we expect from the project's vehicles."
-
----
-
-## Slide 6 — Three-Layer Pipeline: Raw → Cleaned → ML-Ready
-
-**Layout:** Three-column layout with details, or use `medallion_pipeline.png` at top and detail table below
-
-**Title:** "Three-Layer Pipeline: Raw Data → Cleaned Tables → ML-Ready Tables"
-
-**Figure:** `paper/figures/medallion_pipeline.png` (smaller, top ⅓ of slide)
-
-**Detail table (below figure, reframed as "what happens / why you care"):**
-
-| Layer | What happens | Why you care | Tables |
-|-------|-------------|--------------|--------|
-| **Bronze** (Raw) | Each JSON file becomes one table. Schema is enforced — if a field is missing or wrong-typed, ingestion fails. | **Data integrity from day one.** You won't discover corrupt data mid-training. The raw data is always preserved for debugging. | 14 tables |
-| **Silver** (Cleaned) | Data is physically reorganized: camera data stored by camera name, frames stored in temporal order within each clip. Statistics recorded on every column. | **Fast sensor-specific queries.** Ask for "all CAM_FRONT data from clip X" and the system skips 83% of unrelated data automatically. Frames come back in time order without explicit sorting. | 11 tables |
-| **Gold** (ML-ready) | The exact joins your training code needs are pre-computed into single flat tables — one per ML task. | **Zero data-wrangling code in your training pipeline.** Read one table, get everything: image paths, 3D boxes, calibration, ego pose — all pre-joined. | 3 tables |
-
-**Key point (bold, below table):**
-> "Each layer is designed around how AD ML pipelines actually access data — by sensor, by time range, and by task."
-
-**Speaker notes:** "Think of this as three stages. Stage one: raw data comes in, we validate the schema, and store it as-is — this is your audit trail. Stage two: we reorganize the data based on how ML pipelines actually query it. If your object detection code always asks for 'all CAM_FRONT data from clip X,' we physically group the data that way so the system can skip 83% of irrelevant files without scanning them. Stage three: we pre-compute the joins. Instead of your DataLoader joining 6 tables every batch, we do that join once and store the result. Your training code reads one table."
-
----
-
-## Slide 7 — Gold Table Designs
-
-**Layout:** Figure-dominant with the three Gold table cards
-
-**Title:** "Gold Tables: Pre-Joined, ML-Ready"
-
-**Figure:** `paper/figures/gold_tables.png` — spanning full width
-
-**Additional notes (below figure, 2 lines):**
-- Each Gold table eliminates a specific multi-table join pattern that ML training code would otherwise perform at runtime
-- Partition keys chosen to match the dominant filter predicate for each workload (sensor name for detection, clip for temporal workloads)
-
-**Table (compact, reinforcing the figure):**
-
-| Gold Table | ML Workload | Joins Eliminated | Partition Key | Speedup |
-|---|---|---|---|---|
-| `camera_annotations` | Object detection | 6-table join | `camera_name` | **3.2×** |
-| `lidar_with_ego` | SLAM / localization | 3-table join | `clip_id` | **2.2×** |
-| `sensor_fusion_frame` | Multi-modal fusion | 5-table join + 3 agg. | `clip_id` | **2.0×** |
-
-**Speaker notes:** "For object detection, training code needs camera images joined with frame metadata, clip hierarchy, calibration, annotations, and HD map data — that's a 6-table join. The camera_annotations Gold table pre-computes all of this, partitioned by camera name. For SLAM, the lidar_with_ego table pre-joins LiDAR with ego motion and calibration. For sensor fusion, we aggregate all modalities into one row per frame. The speedups range from 2× to 3.2×."
-
----
-
-## Slide 8 — What "Workload Benchmark" Means (and Doesn't Mean)
-
-**Layout:** Top: framing text. Middle: three-column "workload card" layout. Bottom: bar chart.
-
-**Title:** "What We Measured: Data Retrieval for ML Training Pipelines"
-
-**Important framing text (show at top of slide, prominent):**
-> **We did not run model training.** We measured the *data retrieval step* — the
-> query that an ML training pipeline executes to assemble its input batch.
-> Every model needs this step; it runs once per epoch; it is the I/O
-> bottleneck that scales with dataset size.
-
-**Three-column workload explanation (the core of this slide):**
-
-Each column describes one workload in terms an ML researcher would recognize:
-
-| | Object Detection | SLAM / Localization | Sensor Fusion |
-|---|---|---|---|
-| **Example models** | BEVFormer, DETR3D, CenterPoint | ORB-SLAM, LIO-SAM, KISS-ICP | TransFusion, BEVFusion, UniAD |
-| **What training code needs** | Camera image path + 3D bounding boxes + category labels + camera intrinsics/extrinsics, *for one specific camera* | LiDAR point cloud path + ego vehicle pose (translation + quaternion) + extrinsic calibration, *for one driving clip* | All sensors (6 cameras + LiDAR + radar) + annotations aggregated into *one row per time-step*, for one clip |
-| **Where that data lives (Silver)** | Scattered across 6 tables: `camera`, `frame`, `clip`, `calibration`, `dynamic_object`, `hdmap` | Across 3 tables: `lidar`, `ego_motion`, `calibration` | Across 5 tables + 3 group-by aggregations: `frame`, `camera`, `lidar`, `radar`, `dynamic_object` |
-| **Where that data lives (Gold)** | Single table: `camera_annotations`, partitioned by camera name | Single table: `lidar_with_ego`, partitioned by clip | Single table: `sensor_fusion_frame`, partitioned by clip |
-| **Analogy** | Like calling `nuScenes.get_sample_data()` with annotations, but pre-materialized | Like reading a single KITTI sequence directory, but as a table query | Like assembling a full `nuscenes Sample` across all modalities |
-
-**Bar chart:** `paper/figures/workload_benchmark.png` — smaller, placed in lower ⅓
-
-**Result table (compact, beside chart):**
-
-| Workload | Gold (ms) | Silver JOIN (ms) | Speedup | Rows |
-|---|---|---|---|---|
-| Object Detection | 79 | 255 | **3.2×** | 23,150 |
-| SLAM / Localization | 64 | 138 | **2.2×** | 389 |
-| Sensor Fusion | 49 | 99 | **2.0×** | 389 |
-
-**Speaker notes:** "I want to be precise about what we measured here, because we did *not* run model training end-to-end. What we measured is the data retrieval step — the query that a training pipeline runs to load its input data. If you're training BEVFormer for 3D object detection, your data loader needs camera images, bounding boxes, categories, and calibration for a specific camera. Without the lakehouse, that data is scattered across 6 separate tables — camera metadata, frame info, clip hierarchy, calibration parameters, annotations, and HD map data. Your training code has to join all 6 at runtime, every epoch. With the Gold table, it's a single filtered read — the join was done once at ingestion time. The 3.2× speedup means that this data assembly step takes 79 ms instead of 255 ms. That matters because at real dataset scale — tens of millions of frames — this I/O step becomes the dominant bottleneck, and it repeats every training epoch."
-
----
-
-## Slide 8b — Benchmark Methodology (Backup Detail)
-
-> **Note:** This is an optional slide to show *only if asked* about methodology
-> details. Do not present it in the main flow. Keep it ready for Q&A.
-
-**Layout:** Text-heavy detail slide
-
-**Title:** "Benchmark Methodology Detail"
-
-**Key points:**
-- **Fair comparison:** Each Silver query replicates *exactly* the same join graph used to build the corresponding Gold table (e.g., the 6-table Object Detection Silver query mirrors `build_camera_annotations()` line-for-line)
-- **Same filter predicate** applied to both Gold and Silver (e.g., `WHERE camera_name = 'CAM_BACK'`) — isolates join cost, not filter cost
-- **Timing protocol:** JVM pre-warmed (3 throwaway queries) → 2 untimed warmup runs → 5 timed runs → **median** reported
-- **Metric:** `df.count()` action — measures scan + join time only, excludes Python serialization overhead
-- **Real predicates:** Filter values sampled from live data, not hardcoded
-- KAIST simulated dataset · 14 tables · 140K camera annotations · 3,935 frames
-- Environment: Single-node Docker, Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO
-
----
-
-## Slide 9 — Experiment 2: Scalability (nuScenes)
-
-**Layout:** Chart-dominant
-
-**Title:** "Scalability: Latency vs. Data Scale (nuScenes, 1×–50×)"
-
-**Figure:** `paper/figures/scalability.png` — large, upper ⅔ of slide
-
-**Key findings (3 bullets below chart, framed as impact on training):**
-1. **Gold stays under 100 ms at every scale** (42 ms → 87 ms at 50×). That means data loading never becomes your training bottleneck — even as the dataset grows 50×.
-2. **The conventional Python approach slows linearly** (15 ms → 733 ms). At full KAIST dataset scale, this would dominate your per-epoch time.
-3. **At small scale, Python is actually faster** (no Spark startup overhead). The advantage flips at ~20× and the gap widens to 8.4× at 50×. This tells us: the infrastructure pays for itself once datasets are non-trivial.
-
-**Workload description (small italic text):**
-> **Task:** "Load front-camera images with adult-pedestrian 3D annotations" — the data step you'd run before feeding a batch to BEVFormer or DETR3D. Tested on nuScenes v1.0-mini, 18 scale points from SF 1 to 50.
-
-**Speaker notes:** "This chart shows what happens as the dataset grows. The task is realistic: load camera images and pedestrian annotations for the front camera — exactly what you'd do at the start of a training loop for 3D object detection. With the conventional Python approach — the kind of `for` loop you see in nuScenes tutorials — data loading time scales linearly. At 50× scale, that's 733 milliseconds per query. With the Gold table, it stays at 87 milliseconds — because the join was already done, and the system skips irrelevant data files. The takeaway is: at small scale, just use Python. But once you're working with real project-scale data, the infrastructure pays for itself immediately."
-
----
-
-## Slide 10 — Built-in Features That Matter for ML Workflows
-
-**Layout:** Three-panel figure with supporting text
-
-**Title:** "Built-in Features That Matter for ML Workflows"
-
-**Figure:** `paper/figures/supplementary_benchmarks.png` — full width, upper ⅔
-
-**Three-column callouts (below figure, framed as ML scenarios):**
-
-| ML Scenario | What the system does automatically | Measured impact |
-|-------------|------------------------------------|-----------------|
-| **"I only need CAM_FRONT data"** | The system physically groups data by sensor name. When you filter by camera, it skips the files for the other 5 cameras entirely — no scanning needed. | 83% of data skipped automatically; combined camera + clip filter → 98.4% skipped |
-| **"I need frames in time order for a clip"** | Data is pre-sorted by timestamp within each clip on disk. Sequential replay reads data in order without an explicit sort. | 1.8× faster than assembling the sequence at query time |
-| **"I only need data from a 5-second window"** | Timestamp statistics are stored per data file. The system checks each file's min/max timestamp and skips files outside your window before reading anything. | 4.8× speedup for narrow time-range queries |
-
-**Additional validated feature (text only, important for ML reproducibility):**
-- **Dataset pinning / "time travel":** You can tag a specific version of the data and read it back later, even after new data has been added. We validated this: after doubling the dataset (23,150 → 46,300 rows), querying the pinned version returned exactly 23,150 rows. This means you can always reproduce exactly the data you trained on — without manual file snapshots.
-
-**Speaker notes:** "These features come free with the infrastructure — you don't write extra code for them. If your training script asks for CAM_FRONT data, the system physically skips the other 5 cameras' files. That's 83% of I/O eliminated automatically. If you need frames in time order for sequential models like video transformers, the data is already stored in timestamp order. And if you need to reproduce a specific experiment, you can pin the exact dataset version and read it back months later, even after the dataset has been updated. That last point is especially important for this project — when we submit results, we need to be able to say exactly which data was used."
-
----
-
-## Slide 11 — Data Quality: "Is the Data Correct?"
-
-**Layout:** Table/figure with pipeline reliability callout
-
-**Title:** "Automated Validation: Catching Data Errors Before They Reach Your Model"
-
-**Figure:** `paper/figures/validation_summary.png` — upper half
-
-**Key points (below table, framed as what kind of errors are caught):**
-
-| What we check | Why it matters for ML | Count |
-|---------------|----------------------|-------|
-| **No duplicate records** | Duplicate frames would bias your training distribution. We verify every record is unique. | 6 checks |
-| **Cross-table references are valid** | If a camera record references frame_id "X", frame "X" must exist. Broken references → missing data in your training batch. | 4 checks |
-| **Rotation quaternions are unit-norm** | $\|q\| \approx 1.0 \pm \epsilon$. A non-unit quaternion means corrupted ego-pose or annotation rotation — your 3D boxes would be wrong. | 2 checks |
-| **Timestamps are non-negative** | Negative timestamps indicate data corruption. Would break any time-based filtering or temporal model. | 4 checks |
-| **Gold table row counts match** | Verifies that the pre-joining step didn't drop or duplicate data. | 4 checks |
-| **TOTAL** | **All 20 checks pass** on every run | **20** |
-
-**Pipeline execution summary (compact box):**
 ```
-[PHASE 1/4] Ingest raw data           ─── 14 tables from JSON
-[PHASE 2/4] Reorganize for fast access ─── 11 optimized tables
-[PHASE 3/4] Build ML-ready tables      ─── 3 pre-joined tables
-[PHASE 4/4] Validate everything        ─── 20 checks, ALL PASS
-Total: ~24 seconds end-to-end
+5 services · 1 command · ~60 s cold start
+┌────────────────────────────────────────────┐
+│  docker compose up                         │
+│  ├─ spark-iceberg   (Spark 3.5.5 + Py)    │
+│  ├─ polaris         (REST catalog)         │
+│  ├─ minio           (S3 storage)           │
+│  ├─ trino           (SQL engine, port 8080)│
+│  └─ superset        (BI, port 8088)        │
+│  + polaris-setup    (one-shot catalog init) │
+│  + trino-setup      (one-shot schema reg.) │
+└────────────────────────────────────────────┘
+Storage backend is pluggable: MinIO (dev) → Ceph or AWS S3 (prod)
 ```
 
-**Speaker notes:** "Every time data flows through the pipeline, 20 automated checks run. These aren't abstract database checks — they catch real problems. Duplicate frames would bias your training set. Broken cross-references would mean your DataLoader gets empty annotations for some frames. Non-unit quaternions would mean your ego-pose or bounding box rotations are wrong — your 3D geometry would be silently corrupted. We check all of this automatically, every run. If any critical check fails, the pipeline stops before bad data can reach a Gold table."
+**Speaker notes:** "This is the system overview. Top-left: the five services — Spark runs the pipeline, Polaris keeps a central catalog, MinIO stores the data, Trino + Superset are for querying and exploration. Top-right: the KAIST 3-level hierarchy — Session, Clip, Frame — with 14 entity types and custom geometric types. Bottom-left: every table in the schema with its keys and how it's partitioned — note that some of these are still placeholders pending the next schema review with the data team. Bottom-right: Docker deployment — one command launches everything. All five services share Polaris as the single source of truth for table metadata."
 
 ---
 
-## Slide 12 — Current Status & Next Steps
+## Slide 2 — Pipeline, Gold Tables & Data Validation
 
-**Layout:** Two-column: left = accomplished, right = future work
+> *How data flows from raw JSON to ML-ready tables, what the output looks like, and how we guarantee correctness.*
 
-**Title:** "Current Status & Roadmap"
+**Layout:** Three horizontal bands. Top band: pipeline flow with layer details. Middle band: Gold table designs. Bottom band: validation matrix. Figures placed inline.
 
-**Left column — Accomplished (with checkmarks):**
-- [x] Full medallion pipeline (Bronze → Silver → Gold → Validate) operational
-- [x] 14 Bronze tables, 11 Silver tables, 3 Gold tables
-- [x] KAIST 3-level schema implemented with 14 entity types
-- [x] Validated on KAIST-simulated data and nuScenes v1.0-mini (public)
-- [x] 5-service Docker Compose stack (Spark, Polaris, MinIO, Trino, Superset)
-- [x] Benchmark suite: 5 experiments, all results reproducible
-- [x] Paper draft in preparation (domestic conference, 2 pages)
+### Top Band — Three-Layer Medallion Pipeline
 
-**Right column — Next steps:**
-- [ ] **Production-scale validation:** Test with full KAIST E2E dataset on multi-node cluster
-- [ ] **Streaming ingestion:** Integrate live vehicle sensor data via Kafka → Iceberg append
-- [ ] **PyTorch DataLoader integration:** Direct ML training from Gold Iceberg tables (no intermediate export)
-- [ ] **Ceph S3 backend:** Replace MinIO with production Ceph object storage
-- [ ] **Extended scalability testing:** Beyond 50× synthetic scale to real TB-scale data
+**Figure:** `paper/figures/medallion_pipeline.png` (compact, spanning width)
 
-**Known limitations (small text, bottom):**
-- Current benchmarks are single-node; Silver skips 3 low-priority tables (occupancy, motion, session_ego_motion); 2 schemas use placeholder fields
+| Layer | What Happens | Implementation Detail | Why It Matters for ML | Count |
+|-------|-------------|----------------------|----------------------|-------|
+| **Bronze** (Raw Ingest) | Each of 14 JSON files → 1 Iceberg table. Full PySpark `StructType` schema enforcement at write time. Wrong type or missing field → hard failure. Raw data preserved immutably. | `BronzeIngester.ingest_table()` — schema-driven, zero hardcoded column names. Schema defined once in `schemas.py` (14 `StructType` definitions). | **Data integrity from ingest.** No corrupt data silently entering the pipeline. Bronze is your audit trail — always reprocessable. | 14 tables |
+| **Silver** (Domain-Optimized) | Physical reorganization: partition by access pattern (camera by `camera_name`, temporal tables by `clip_id`), sort within partitions by `sensor_timestamp`, write Iceberg column-level min/max statistics on every column via `METRICS_CONFIG`. | `SilverTransformer` with 3 config dicts: `PARTITION_CONFIG` (11 entries), `SORT_CONFIG` (8 entries), `METRICS_CONFIG` (8 entries). Uses Iceberg `write.metadata.metrics.column.*` properties. | **Automatic I/O elimination.** Filter by `camera_name = 'CAM_FRONT'` → skip 5/6 of camera files (83%). Filter by clip + camera → skip 98.4%. Temporal queries use per-file timestamp ranges to skip files outside the window. Data comes pre-sorted for sequential models. | 11 tables |
+| **Gold** (ML-Ready) | Pre-compute the exact multi-table joins each ML task needs. Materialize as flat, partitioned Iceberg tables. One table per workload. | `GoldTableBuilder` with 3 build methods. Each executes the join, repartitions, sorts within partitions, and writes with full column metrics. | **Zero join code in training pipeline.** `DataLoader.__getitem__` reads one table. All image paths, 3D boxes, calibration, ego pose — pre-joined. | 3 tables |
 
-**Speaker notes:** "To summarize the current status: the full pipeline is operational end-to-end. All ingestion, transformation, and validation works. We've validated it on simulated KAIST data and the public nuScenes dataset. The Docker stack launches with a single command. Going forward, the key priorities are testing at production scale with the real KAIST data, adding streaming ingestion for live vehicle data, and building a direct PyTorch DataLoader so training pipelines can read from Gold tables without intermediate export steps."
+**Full pipeline execution:**
+```
+[PHASE 1/4] Ingest Bronze    ─── 14 JSON → 14 Iceberg tables         (schema-enforced)
+[PHASE 2/4] Transform Silver  ─── 14 → 11 domain-optimized tables     (partitioned + sorted + metrics)
+[PHASE 3/4] Build Gold        ─── 11 → 3 ML-ready pre-joined tables   (one per workload)
+[PHASE 4/4] Validate          ─── 20 automated checks, ALL PASS       (blocks on failure)
+Total: ~24 seconds end-to-end (KAIST-simulated, single node)
+```
 
----
+### Middle Band — Gold Table Designs
 
-## Slide 13 — Summary / Conclusion
+**Figure:** `paper/figures/gold_tables.png` (spanning width)
 
-**Layout:** Clean summary slide with key numbers
+| Gold Table | ML Task | Example Models | Source Tables Joined | Key Output Columns | Partition Key | Sort Key | Rows |
+|---|---|---|---|---|---|---|---|
+| `camera_annotations` | 3D Object Detection | BEVFormer, DETR3D, CenterPoint | camera ⋈ frame ⋈ clip ⋈ calibration ⋈ dynamic_object ⋈ hdmap (6 tables) | camera_filename, sensor_timestamp, frame_idx, clip_date, extrinsics (SE3), camera_intrinsics (3×3), boxes_3d (Box3D[]), category, hdmap_filename, city | `camera_name` | sensor_timestamp | 23,150 |
+| `lidar_with_ego` | SLAM / Localization | ORB-SLAM, LIO-SAM, KISS-ICP | lidar ⋈ ego_motion ⋈ calibration (3 tables) | lidar_filename, sensor_timestamp, ego_translation (3D), ego_rotation (Quat), extrinsics (SE3), clip_id | `clip_id` | sensor_timestamp | 389 |
+| `sensor_fusion_frame` | Multi-Modal Fusion | TransFusion, BEVFusion, UniAD | frame ⋈ camera ⋈ lidar ⋈ radar ⋈ dynamic_object (5 tables + 3 group-by aggregations) | frame_idx, sensor_timestamp, camera_list (agg), lidar_filename, radar_list (agg), all_boxes_3d (agg), num_cameras, num_radars, clip_id | `clip_id` | sensor_timestamp | 389 |
 
-**Title:** "Summary"
+**Design principle:** Each Gold table's partition key matches the dominant filter predicate for its workload — `camera_name` for detection (users query one camera at a time), `clip_id` for temporal workloads (users process one driving sequence at a time).
 
-**Three key takeaways (large font, one per section):**
+### Bottom Band — Automated Validation (20 Checks)
 
-1. **Your training code gets simpler:** Instead of writing 6-table join logic in every training script, read a single ML-ready table. We handle ingestion, validation, and pre-joining for 14 AD entity types automatically.
-   
-2. **Data loading gets 2–8× faster:** Pre-joined tables are 2–3× faster than runtime joins for object detection, SLAM, and sensor fusion. At 50× dataset scale, the gap vs. conventional Python scripts widens to 8.4×.
+**Figure:** `paper/figures/validation_summary.png` (compact)
 
-3. **Reproducibility is built in:** Pin your training dataset to a specific version. Even after new data arrives, you can re-read the exact data you trained on — no manual snapshots needed.
+| Check Category | What We Verify | Why It Matters for ML | Severity | Count |
+|---|---|---|---|---|
+| **Primary key uniqueness** | Every record ID is unique within its table (session_id, clip_id, frame_id, etc.) | Duplicate frames bias training distribution; duplicate annotations inflate loss | CRITICAL | 6 |
+| **Foreign key integrity** | Cross-table references resolve (e.g., camera.frame_id → frame.frame_id exists) | Broken FK → `DataLoader` gets NULL annotations or missing calibration for some frames | CRITICAL | 4 |
+| **Quaternion unit-norm** | $\|q\| = \sqrt{q_w^2 + q_x^2 + q_y^2 + q_z^2} \approx 1.0 \pm \epsilon$ for all ego_motion and calibration rotations | Non-unit quaternion → corrupted ego-pose transform → wrong 3D bounding box projections | CRITICAL | 2 |
+| **Timestamp validity** | All `sensor_timestamp` values ≥ 0 | Negative timestamp → data corruption; breaks time-range filters and temporal ordering | CRITICAL | 4 |
+| **Gold row-count consistency** | Gold table row count matches expected count from source join | Mismatch → the pre-join step dropped or duplicated data silently | CRITICAL | 4 |
+| **TOTAL** | **All 20 checks pass on every pipeline run** | Pipeline halts on any CRITICAL failure — bad data never reaches Gold tables | | **20** |
 
-**Bottom banner (bold):**
-> "Open-source data infrastructure for the KAIST/MOTIE AD project: raw sensors in → validated, ML-ready tables out."
-
-**Speaker notes:** "Three things to take away. First: this infrastructure means less boilerplate in your training code. You don't write join logic — you read one table. Second: that simplification also makes data loading faster — 2 to 3× for the core workloads, and 8× faster than Python scripts once datasets get large. Third: reproducibility. You can pin the exact version of the data you trained on and come back to it months later. That's important for paper submissions and for regulatory compliance. The whole stack is open source and launches with one command."
-
----
-
-## Backup Slide A — Technology Stack Details
-
-**Layout:** Table-dominant
-
-**Title:** "Technology Stack"
-
-| Component | Technology | Version | Role |
-|-----------|-----------|---------|------|
-| ETL Engine | Apache Spark (PySpark) | 3.5.5 | Bronze→Silver→Gold pipeline |
-| Table Format | Apache Iceberg | 1.8.1 (v2) | ACID, time travel, schema evolution |
-| Catalog | Apache Polaris | Latest | REST catalog, unified metadata |
-| Object Storage | MinIO | 2025-09 | S3-compatible (dev); swappable to Ceph |
-| Query Engine | Trino | 479 | Interactive SQL, BI queries |
-| BI Dashboard | Apache Superset | Latest | Visualization, exploration |
-| Orchestration | Docker Compose | — | Single-command deployment |
+**Speaker notes:** "Slide 2 is the pipeline deep-dive. Top band: three layers — Bronze enforces schema on ingest, Silver reorganizes data physically for fast access (partitioning, sorting, column statistics), Gold pre-computes joins. The full pipeline runs in about 24 seconds on the simulated dataset. Middle band: the three Gold tables in detail — camera_annotations eliminates a 6-table join for object detection, lidar_with_ego eliminates a 3-table join for SLAM, sensor_fusion_frame eliminates 5 tables plus 3 aggregations for fusion. Bottom band: 20 automated validation checks that run after every pipeline execution. These catch real problems — duplicate frames, broken references, non-unit quaternions (which would silently corrupt your 3D geometry), negative timestamps, and row-count mismatches. If any critical check fails, the pipeline halts before bad data reaches a Gold table."
 
 ---
 
-## Backup Slide B — Schema Details (KAIST 14 Tables)
+## Slide 3 — All Benchmarks: Methodology, Results & Analysis
 
-**Layout:** Compact multi-column table
+> *Every experiment, every number, full methodology. We measured data retrieval, not model training.*
 
-**Title:** "KAIST Schema: 14 Entity Types"
+**Layout:** Dense five-section layout. Top: methodology + disclaimer. Upper-middle: Experiment 1 (three workloads). Lower-middle: Experiment 2 (scalability). Bottom-left: supplementary experiments. Bottom-right: time travel validation.
 
-| Table | Primary Key | Key Fields | Partition (Silver) |
-|-------|------------|------------|-------------------|
-| session | session_id | session_name, clip_id_list | — |
-| clip | clip_id | session_id, clip_idx, date | session_id |
-| frame | frame_id | clip_id, frame_idx, sensor_timestamps | clip_id |
-| calibration | clip_id+sensor_name | extrinsics (SE3), camera_intrinsics | clip_id, sensor_name |
-| camera | frame_id+camera_name | clip_id, sensor_timestamp, filename | camera_name, clip_id |
-| lidar | frame_id | clip_id, sensor_timestamp, filename | clip_id |
-| radar | frame_id+radar_name | clip_id, sensor_timestamp, filename | radar_name, clip_id |
-| category | category | (reference table) | — |
-| dynamic_object | frame_id | clip_id, boxes_3d (Box3D), category | clip_id |
-| ego_motion | frame_id | clip_id, translation (3D), rotation (Quat) | clip_id |
-| occupancy | frame_id | clip_id, occupancy_data* | clip_id |
-| motion | frame_id | clip_id, motion_data* | clip_id |
-| session_ego_motion | session_id | translation, rotation, start, goal | — |
-| hdmap | clip_id | filename, city, site | — |
+### Top Section — Scope Disclaimer & Methodology
 
-*Placeholder schemas — to be refined with actual KAIST data
+> **What we measured and what we did not:** We measured the *data retrieval step* — the query that an ML training pipeline executes to assemble its input batch. We did **not** run model training end-to-end. Every ML model needs this data retrieval step; it runs once per epoch; it is the I/O bottleneck that scales with dataset size.
 
----
+**Benchmark methodology (applies to all experiments):**
 
-## Backup Slide C — Full Scalability Data Table
+| Aspect | Detail |
+|--------|--------|
+| **Fair comparison** | Each Silver query replicates *exactly* the same join graph used to build the corresponding Gold table (e.g., the 6-table Object Detection Silver query mirrors `GoldTableBuilder.build_camera_annotations()` line-for-line) |
+| **Same filter predicate** | Identical `WHERE` clause applied to both Gold and Silver (e.g., `camera_name = 'CAM_BACK'`) — isolates join cost, not filter selectivity |
+| **JVM warmup** | 3 throwaway Spark SQL queries before timing begins |
+| **Timing protocol** | 2 untimed warmup runs → 5 timed runs → **median** reported |
+| **Metric** | `df.count()` action — forces full scan + join execution; excludes Python serialization overhead (measures pure engine time) |
+| **Filter values** | Sampled from live data, not hardcoded (e.g., `camera_name` drawn from actual table) |
+| **Environment** | Single-node Docker: Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO |
 
-**Layout:** Dense data table
+### Experiment 1 — Three AD Workloads: Gold vs. Silver (KAIST Dataset)
 
-**Title:** "nuScenes Scalability — Full Results (18 Scale Factors)"
+**Dataset:** KAIST-simulated, 14 tables, 140 K camera annotations, 3,935 frames
 
-| SF | Effective Rows | Python (ms) | Silver (ms) | Gold (ms) | Gold vs Python |
+**Figure:** `paper/figures/workload_benchmark.png`
+
+| Workload | Example Models | Gold Query | Silver JOIN Query | Gold (ms) | Silver (ms) | Speedup | Rows |
+|---|---|---|---|---|---|---|---|
+| **Object Detection** | BEVFormer, DETR3D, CenterPoint | `SELECT * FROM camera_annotations WHERE camera_name = ?` | 6-table join: camera ⋈ frame ⋈ clip ⋈ calibration ⋈ dynamic_object ⋈ hdmap | **79** | 255 | **3.2×** | 23,150 |
+| **SLAM / Localization** | ORB-SLAM, LIO-SAM, KISS-ICP | `SELECT * FROM lidar_with_ego WHERE clip_id = ?` | 3-table join: lidar ⋈ ego_motion ⋈ calibration | **64** | 138 | **2.2×** | 389 |
+| **Sensor Fusion** | TransFusion, BEVFusion, UniAD | `SELECT * FROM sensor_fusion_frame WHERE clip_id = ?` | 5-table join + 3 aggregations: frame ⋈ camera ⋈ lidar ⋈ radar ⋈ dynamic_object | **49** | 99 | **2.0×** | 389 |
+
+**What each workload retrieves (ML context):**
+- **Object Detection:** Camera image path + 3D bounding boxes + category labels + camera intrinsics/extrinsics, for one specific camera. Analogous to `nuScenes.get_sample_data()` with annotations, but pre-materialized.
+- **SLAM:** LiDAR point cloud path + ego vehicle pose (translation + quaternion) + extrinsic calibration, for one driving clip. Analogous to reading a single KITTI sequence directory as a table query.
+- **Sensor Fusion:** All sensors (6 cameras + LiDAR + radar) + annotations aggregated into one row per time-step, for one clip. Analogous to assembling a full nuScenes `Sample` across all modalities.
+
+### Experiment 2 — Scalability: Latency vs. Data Scale (nuScenes, 1×–50×)
+
+**Dataset:** nuScenes v1.0-mini (public), 7 core JSON tables, synthetically replicated from 1× to 50× (18 scale points). Observation tables scaled; reference tables (category, sensor) remain at 1× — mimics realistic growth.
+**Task:** "Load front-camera images with adult-pedestrian 3D annotations" — the data step before feeding a batch to BEVFormer or DETR3D.
+**Python baseline:** Conventional `for`-loop over JSON dictionaries (nuScenes tutorial style). Median of 5 runs.
+**Spark strategies:** 1 warmup + median of 3 runs.
+
+**Figure:** `paper/figures/scalability.png`
+
+| SF | Rows | Python (ms) | Silver (ms) | Gold (ms) | Gold vs. Python |
 |---:|---:|---:|---:|---:|---:|
 | 1× | 27,483 | 15 | 267 | 42 | 0.4× |
 | 2× | 54,966 | 31 | 227 | 47 | 0.7× |
@@ -421,49 +229,107 @@ Total: ~24 seconds end-to-end
 | 45× | 1,236,735 | 623 | 481 | 82 | 7.6× |
 | 50× | 1,374,150 | 733 | 499 | 87 | **8.4×** |
 
+**Key findings:**
+1. **Gold stays under 100 ms at every scale** (42 ms → 87 ms at 50×). Data loading never becomes the training bottleneck.
+2. **Python slows linearly** (15 ms → 733 ms). At full KAIST dataset scale, this dominates per-epoch time.
+3. **Crossover at ~3×:** Below SF 3, Python is faster (no Spark overhead). Above SF 3, Gold wins. Gap widens to **8.4×** at SF 50.
+4. **Silver plateaus around 400–500 ms** — join overhead dominates at scale, but still better than Python above SF 20.
+
+### Supplementary Experiments — Iceberg Features
+
+**Figure:** `paper/figures/supplementary_benchmarks.png`
+
+| Experiment | What It Tests | Setup | Result | ML Implication |
+|---|---|---|---|---|
+| **Partition Pruning** | How much I/O is eliminated when filtering by partition key | Filter by `camera_name` (1/6 cameras): files scanned? Add `clip_id`: files scanned? | **83% skipped** (camera only), **98.4% skipped** (camera + clip) | "I only need CAM_FRONT for clip X" → system reads 1.6% of data |
+| **Temporal Replay** | Cost of reading frames in time order for sequential models | Pre-sorted (Silver/Gold) vs. explicit `ORDER BY sensor_timestamp` at query time | **1.8× faster** with pre-sorted data | Video transformers, sequence models get frames in order without explicit sort |
+| **Column-Level Metrics** | Benefit of per-file min/max statistics for range predicates | Narrow time-range query (`sensor_timestamp BETWEEN t1 AND t1+5s`): metrics-enabled vs. disabled | **4.8× speedup** | "Give me a 5-second window of data" → system checks each file's timestamp range, skips files entirely |
+| **Time Travel (Snapshot Pinning)** | Can you reproduce the exact dataset after new data arrives? | Write 23,150 rows → record snapshot ID → append 23,150 more rows → read at pinned snapshot | Returns exactly **23,150 rows** (not 46,300) ✓ | Pin dataset version before training → reproduce exact data months later. Critical for paper submissions and regulatory compliance. |
+
+**Speaker notes:** "This slide is the evidence. I want to be precise: we did not run model training end-to-end — we measured the data retrieval step, which is the I/O bottleneck in every training pipeline. The methodology is designed for fairness: the Silver query replicates the exact same join logic that built the Gold table, with the same filter predicate, so we're isolating the cost of pre-joining vs. runtime joining. JVM is pre-warmed, 2 untimed warmup runs, 5 timed runs, median reported. Three workloads: object detection gets 3.2× faster, SLAM 2.2×, fusion 2.0×. The scalability experiment on nuScenes shows Gold stays under 100 ms at every scale while Python scripts slow linearly to 733 ms at 50× — that's an 8.4× gap. The supplementary experiments show that Iceberg's built-in features — partition pruning, pre-sorted data, column statistics, snapshot pinning — each contribute measurable speedups. The time travel experiment is particularly important: you can pin your training data to a specific snapshot and read it back identically after the dataset has been updated."
+
 ---
 
-## Backup Slide D — Benchmark Methodology
+## Slide 4 — Status, Open Questions & Next Steps
 
-**Layout:** Text-heavy methodology slide
+> *What's done, what needs cross-team decisions, and where we go from here.*
 
-**Title:** "Benchmark Methodology"
+**Layout:** Three horizontal bands. Top: status matrix. Middle: open design questions + planned work. Bottom: results summary.
 
-**Experiment 1 (KAIST — Three Workloads):**
-- Dataset: KAIST-simulated 3-level dataset (14 tables, 140K camera annotations, 3,935 frames)
-- Methodology: 2 warmup + 5 timed runs, median
-- Metric: `df.count()` to isolate scan+join time (no serialization overhead)
-- Environment: Single-node Docker, Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO
+### Top Band — Current Status (What's Operational Today)
 
-**Experiment 2 (nuScenes — Scalability):**
-- Dataset: nuScenes v1.0-mini (public), 7 core JSON tables
-- Scaling: Synthetic replication of observation tables (sample_data) from 1× to 50× (18 sample points)
-- Reference tables (category, sensor) remain at 1× — mimics realistic growth
-- Python baseline: median of 5 runs; Spark strategies: 1 warmup + median of 3 runs
-- Workload: "Front camera images with adult pedestrian 3D annotations"
+| Deliverable | Status | Detail |
+|-------------|--------|--------|
+| Full medallion pipeline (Bronze → Silver → Gold → Validate) | ✅ Operational | 4-phase automated pipeline, ~24 s end-to-end on simulated data |
+| KAIST 3-level schema | ✅ Implemented | 14 entity types, 4 named geometric structs (SE3, Quaternion, Box3D, Translation3D) |
+| Bronze layer | ✅ Complete | 14 Iceberg tables, schema-enforced, raw-preserving |
+| Silver layer | ✅ Complete | 11 domain-optimized tables (3 low-priority tables deferred: occupancy, motion, session_ego_motion) |
+| Gold layer | ✅ Complete | 3 ML-ready pre-joined tables (camera_annotations, lidar_with_ego, sensor_fusion_frame) |
+| Automated validation | ✅ Complete | 20 checks (PK uniqueness, FK integrity, quaternion norms, timestamps, row-count consistency). All pass. |
+| 5-service Docker stack | ✅ Deployed | Spark 3.5.5, Polaris, MinIO, Trino 479, Superset. Single `docker compose up` command. |
+| Benchmark suite | ✅ Complete | 5 experiments (three-workload, scalability, partition pruning, temporal replay, column metrics + time travel). All reproducible. |
+| nuScenes cross-validation | ✅ Complete | Pipeline validated on nuScenes v1.0-mini (public dataset, 7 tables). Confirms generalizability beyond KAIST schema. |
+| Paper draft | ✅ In preparation | Domestic conference, 2-page format |
+
+### Middle Band — Open Design Questions (For Cross-Team Discussion)
+
+These are decisions that affect other teams and need joint resolution. The lakehouse can support any of the listed options — the question is which policy the project adopts.
+
+| Question | Context | Options on the Table | Who Decides |
+|----------|---------|---------------------|-------------|
+| **How do schema updates propagate?** | The data schema team may add/rename/restructure fields. Currently, schema changes require updating `schemas.py` + downstream Silver/Gold logic (~235 hardcoded column references across 5 files). | **(a)** Schema team sends high-level definition (DBML/Avro), we implement pipeline changes. **(b)** Build auto-generation tooling (DBML → PySpark StructType) to reduce manual work. **(c)** Schema team works directly in codebase (high coordination cost). | Data schema team + us |
+| **Pre-Bronze data retention policy** | Bronze layer currently preserves raw JSON immutably (audit trail, reprocessing). At production scale, this doubles storage. | **(a)** Keep originals indefinitely (safest, most expensive). **(b)** Delete originals after Bronze ingest is validated (saves space, irreversible). **(c)** Move originals to cold storage / archive tier after N days. | Project-wide policy |
+| **Placeholder schemas (occupancy, motion)** | 2 of 14 table schemas have placeholder fields — we need the actual data format from the vehicle/annotation teams. Silver layer skips these 3 tables until schemas are finalized. | Waiting on field definitions from data collection team. | Data collection + annotation teams |
+| **End-to-end ML validation** | Our benchmarks measure data retrieval only. Validating impact on actual model training time (e.g., BEVFormer epoch time with Gold tables vs. conventional data loading) would strengthen the case but requires GPU resources + model code. | **(a)** We run it (need GPU allocation). **(b)** An ML team runs it using our Gold tables. **(c)** Defer to next quarter. | ML teams + us |
+| **Storage backend for production** | MinIO is dev-only. Production needs a decision on Ceph (on-prem) vs. cloud S3. Code is storage-agnostic (S3 API), so the switch is configuration-only. | Depends on project infrastructure decisions. | Infrastructure team |
+
+### Middle Band (cont.) — Planned Next Steps
+
+| Next Step | Status | Detail |
+|-----------|--------|--------|
+| **Production-scale validation** | Blocked on real data | Test full pipeline with actual KAIST E2E dataset on multi-node Spark cluster |
+| **Streaming ingestion** | Planned | Live vehicle sensor data → Kafka → Iceberg append. Architecture supports it; implementation not started. |
+| **PyTorch DataLoader integration** | Planned | Direct `torch.utils.data.Dataset` reading from Gold Iceberg tables — no intermediate CSV/Parquet export |
+| **Extended scalability testing** | Planned | Beyond 50× synthetic scale to real TB-scale data |
+
+### Bottom Band — Summary of Current Results
+
+| What We Built | Key Numbers | Current Scope |
+|---------------|-------------|---------------|
+| 3-layer pipeline (Bronze → Silver → Gold) with 20-check automated validation | ~24 s end-to-end on simulated data. All 20 validation checks pass every run. | KAIST-simulated (14 tables, 140 K camera annotations, 3,935 frames). Also validated on nuScenes v1.0-mini. |
+| 3 Gold tables pre-joining data for object detection, SLAM, and sensor fusion | **2.0–3.2×** faster data retrieval vs. runtime joins (Gold vs. Silver). Object detection: 79 ms vs. 255 ms. | Single-node Docker. Measured data retrieval step (not model training). |
+| Scalability tested 1×–50× on nuScenes | **8.4×** faster than conventional Python at 50× scale. Gold stays sub-100 ms at every scale. Crossover at ~SF 3. | Synthetic scaling of nuScenes-mini. Not yet tested at real TB-scale. |
+| Iceberg features: partition pruning, temporal sort, column metrics, time travel | 83–98.4% I/O skipped via pruning. 1.8× temporal replay speedup. 4.8× column-metrics speedup. Snapshot pinning verified. | Demonstrated on KAIST-simulated dataset. |
+| 5-service Docker stack (Spark, Polaris, MinIO, Trino, Superset) | Single `docker compose up`. ~60 s cold start. | Dev environment. Production deployment (Ceph, multi-node) TBD. |
+
+**Speaker notes:** "To close: the top table is everything that's operational today. The middle section is what I'd like to discuss — these are design decisions that affect multiple teams. Schema evolution is the big one: right now, a schema change from the data team means we manually update about 235 column references across 5 pipeline files. We should decide on a workflow — whether you send us a high-level spec and we implement, or whether we invest in auto-generation tooling. The data retention question is about cost: keeping raw JSON doubles storage, but deleting it is irreversible. And we'd love to run an end-to-end training benchmark — BEVFormer epoch time with Gold tables vs. conventional loading — but we need GPU access and possibly help from one of the ML teams. The bottom table summarizes current results: 2–3× faster data retrieval, 8× faster than Python scripts at scale, and the pipeline catches data errors automatically. All of this works today on a single Docker command — production deployment is the next milestone."
 
 ---
 
 ## Design & Formatting Guidelines
 
 **General:**
+- **Poster-density format.** Each slide is a self-contained reference sheet, not a traditional bullet-point presentation slide. Design each as a dense quadrant/band layout that can be read as a standalone document.
 - Use a clean, modern slide template (dark header bar, white body)
-- Consistent color coding throughout: Gold = amber/orange (#E8A838), Silver = steel blue (#6C8EBF), Python/Bronze = contextual
+- Consistent color coding: **Gold = amber/orange (#E8A838)**, **Silver = steel blue (#6C8EBF)**, **Bronze = warm gray**, **Python baseline = muted green**
 - All charts use the pre-generated figures from `paper/figures/`
-- Slide numbers in footer
-- Project name and date in footer
+- Slide numbers in footer; project name and date in footer
 
-**Typography:**
-- Slide titles: 28–32 pt, bold
-- Body text: 18–22 pt
-- Table text: 14–16 pt
+**Typography (adjusted for density):**
+- Slide titles: 24–28 pt, bold
+- Section sub-headers within a slide: 18–20 pt, bold
+- Body text: 14–16 pt
+- Table text: 11–13 pt (dense tables are expected and acceptable)
 - Speaker notes: not displayed, for presenter reference
 
 **Figure placement:**
-- Figures should fill at least 50% of the slide area when they are the primary content
-- Use consistent margins and alignment
+- Figures are embedded inline within their section band — smaller than in a traditional deck
+- Multiple figures per slide is normal (Slide 1 has 2, Slide 2 has 3, Slide 3 has 3)
 - No figure borders; figures have built-in white backgrounds
 
+**Slide dimensions:**
+- Consider 16:9 widescreen for maximum horizontal space
+- If content overflows, widen tables rather than cutting content — information density is the design goal
+
 **Transitions:**
-- Simple fade or none — no animated transitions
-- Build bullets one at a time where it aids storytelling (slides 2, 9, 12)
+- None. These slides are reference-grade — no animation needed.

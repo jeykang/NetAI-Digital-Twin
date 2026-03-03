@@ -15,7 +15,7 @@ All figures pre-generated at 200 DPI in `paper/figures/`.
 
 | # | Filename | Content |
 |---|----------|---------|
-| F1 | `architecture.png` | System architecture (5-service Docker stack) |
+| F1 | `data_flow.png` | Data flow — new AD dataset ingestion through the lakehouse |
 | F2 | `data_model.png` | KAIST 3-level hierarchy diagram |
 | F3 | `medallion_pipeline.png` | Bronze → Silver → Gold pipeline flow |
 | F4 | `workload_benchmark.png` | Grouped bar chart — Gold vs Silver, 3 workloads |
@@ -30,27 +30,28 @@ All figures pre-generated at 200 DPI in `paper/figures/`.
 
 > *Everything about what we built — the system, the schema, the tech.*
 
-**Layout:** Dense four-quadrant. Top-left: architecture figure. Top-right: data model figure. Bottom-left: schema reference table. Bottom-right: deployment detail. Title banner across the top.
+**Layout:** Dense four-quadrant. Top-left: data flow figure. Top-right: data model figure. Bottom-left: schema reference table. Bottom-right: deployment detail. Title banner across the top.
 
 ### Top Banner — Project Context
 
 > **What this is:** The data infrastructure component of the NetAI Digital Twin project. Takes raw KAIST E2E autonomous driving sensor data (14 entity types across cameras, LiDAR, radar, ego pose, annotations, maps) and transforms it into ML-ready tables via a three-layer pipeline (Bronze → Silver → Gold). Five-service Docker stack, single-command deployment.
 
-### Top-Left Quadrant — System Architecture
+### Top-Left Quadrant — Data Flow (New AD Dataset Ingestion)
 
-**Figure:** `paper/figures/architecture.png` (compact)
+**Figure:** `paper/figures/data_flow.png` (compact)
 
-**Five-service stack (labeled on or beside figure):**
+Shows the end-to-end journey of a newly collected autonomous driving dataset through the lakehouse:
 
-| Service | Technology | Version | Role (ML-user perspective) |
-|---------|-----------|---------|---------------------------|
-| **ETL Engine** | Apache Spark (PySpark) | 3.5.5 | Runs the 3-layer pipeline: raw JSON → ML-ready tables. Performs all joins and physical optimizations once so training code doesn't have to. |
-| **Table Format** | Apache Iceberg | 1.8.1 (v2) | ACID transactions, time travel (pin dataset versions), schema evolution, partition pruning, column-level statistics. The reason Gold queries are fast. |
-| **Catalog** | Apache Polaris | Latest | REST catalog — central registry so Spark, Trino, and Superset all see the same tables. No file-path wrangling. |
-| **Object Storage** | MinIO | 2025-09 | S3-compatible storage (dev). Swappable to Ceph or cloud S3 — code doesn't change. |
-| **Query + BI** | Trino 479 + Apache Superset | Latest | Interactive SQL and dashboards to explore the dataset without Python. E.g., `SELECT * FROM kaist_gold.camera_annotations WHERE camera_name = 'CAM_FRONT' AND category = 'pedestrian'` |
+| Stage | What Happens | Concrete Example |
+|-------|-------------|------------------|
+| **Vehicle Data** | 14 raw JSON files collected from KAIST instrumented vehicle (camera ×6, LiDAR, radar, ego pose, annotations, calibration, HD map, etc.) | `camera.json` — 6 views per frame, `lidar.json` — 360° point cloud |
+| **→ Bronze** | Schema enforcement: each JSON → 1 Iceberg table. Wrong type = hard failure. Raw data preserved immutably. | `ingest_bronze.py` — 14 tables, zero hardcoded column names |
+| **→ Silver** | Physical optimization: partition by access pattern, sort by timestamp, write column-level min/max stats. | `camera` partitioned by `camera_name` + `clip_id` → 83% I/O skip on single-camera queries |
+| **→ Gold** | Pre-join per ML task. Materialize as flat tables — one read per training batch. | `camera_annotations` = camera ⋈ frame ⋈ dynamic_object ⋈ calibration ⋈ ego_motion ⋈ category (6-way join) |
+| **→ Validate** | 20 automated quality checks: PK uniqueness, FK integrity, quaternion unit norms, timestamps ≥ 0, row counts. | `validators.py` — pass/fail gate before data is marked consumable |
+| **→ Consume** | ML training (DataLoader reads 1 table), interactive SQL (Trino), dashboards (Superset). All engines share catalog — no data copies. | `SELECT * FROM kaist_gold.camera_annotations WHERE camera_name='CAM_FRONT' AND category='pedestrian'` |
 
-**Deployment:** `docker compose up` → all 5 services + Polaris catalog initialization. Single `.env` file for configuration.
+**Infrastructure strip** (shown at bottom of figure): Spark 3.5.5 · Iceberg 1.8.1 · Polaris (REST catalog) · MinIO (S3) · Trino 479 · Superset · Docker Compose. Components are annotations on the flow, not the primary content.
 
 ### Top-Right Quadrant — KAIST 3-Level Data Model
 
@@ -107,7 +108,7 @@ All figures pre-generated at 200 DPI in `paper/figures/`.
 Storage backend is pluggable: MinIO (dev) → Ceph or AWS S3 (prod)
 ```
 
-**Speaker notes:** "This is the system overview. Top-left: the five services — Spark runs the pipeline, Polaris keeps a central catalog, MinIO stores the data, Trino + Superset are for querying and exploration. Top-right: the KAIST 3-level hierarchy — Session, Clip, Frame — with 14 entity types and custom geometric types. Bottom-left: every table in the schema with its keys and how it's partitioned — note that some of these are still placeholders pending the next schema review with the data team. Bottom-right: Docker deployment — one command launches everything. All five services share Polaris as the single source of truth for table metadata."
+**Speaker notes:** "This is the system overview. Top-left: the data flow diagram — what happens when a new dataset comes in. Raw JSON from the vehicle goes through Bronze (schema enforcement), Silver (physical optimization), Gold (pre-joined per ML task), then validation — before ML training code or Trino queries ever touch it. The infrastructure names are at the bottom as a reference strip; the focus is on what the data goes through, not what software runs it. Top-right: the KAIST 3-level hierarchy — Session, Clip, Frame — with 14 entity types and custom geometric types. Bottom-left: every table in the schema with its keys and how it's partitioned — note that some of these are still placeholders pending the next schema review with the data team. Bottom-right: Docker deployment — one command launches everything."
 
 ---
 

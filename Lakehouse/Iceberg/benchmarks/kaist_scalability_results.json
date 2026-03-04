@@ -1,0 +1,326 @@
+[
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 1,
+    "elapsed_seconds": 0.001683,
+    "row_count": 2342
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 2,
+    "elapsed_seconds": 0.003467,
+    "row_count": 4684
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 3,
+    "elapsed_seconds": 0.004968,
+    "row_count": 7026
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 4,
+    "elapsed_seconds": 0.006678,
+    "row_count": 9368
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 5,
+    "elapsed_seconds": 0.008455,
+    "row_count": 11710
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 6,
+    "elapsed_seconds": 0.010211,
+    "row_count": 14052
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 7,
+    "elapsed_seconds": 0.012084,
+    "row_count": 16394
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 8,
+    "elapsed_seconds": 0.014006,
+    "row_count": 18736
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 9,
+    "elapsed_seconds": 0.015555,
+    "row_count": 21078
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 10,
+    "elapsed_seconds": 0.017345,
+    "row_count": 23420
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 15,
+    "elapsed_seconds": 0.033705,
+    "row_count": 35130
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 20,
+    "elapsed_seconds": 0.044617,
+    "row_count": 46840
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 25,
+    "elapsed_seconds": 0.055664,
+    "row_count": 58550
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 30,
+    "elapsed_seconds": 0.06564,
+    "row_count": 70260
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 35,
+    "elapsed_seconds": 0.07867,
+    "row_count": 81970
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 40,
+    "elapsed_seconds": 0.090853,
+    "row_count": 93680
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 45,
+    "elapsed_seconds": 0.098101,
+    "row_count": 105390
+  },
+  {
+    "strategy": "Python Baseline",
+    "scale_factor": 50,
+    "elapsed_seconds": 0.111402,
+    "row_count": 117100
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 1,
+    "elapsed_seconds": 0.31512,
+    "row_count": 23420
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 2,
+    "elapsed_seconds": 0.187567,
+    "row_count": 46840
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 3,
+    "elapsed_seconds": 0.204381,
+    "row_count": 70260
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 4,
+    "elapsed_seconds": 0.153673,
+    "row_count": 93680
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 5,
+    "elapsed_seconds": 0.17603,
+    "row_count": 117100
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 6,
+    "elapsed_seconds": 0.158514,
+    "row_count": 140520
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 7,
+    "elapsed_seconds": 0.15391,
+    "row_count": 163940
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 8,
+    "elapsed_seconds": 0.164792,
+    "row_count": 187360
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 9,
+    "elapsed_seconds": 0.131973,
+    "row_count": 210780
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 10,
+    "elapsed_seconds": 0.144605,
+    "row_count": 234200
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 15,
+    "elapsed_seconds": 0.161143,
+    "row_count": 351300
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 20,
+    "elapsed_seconds": 0.157639,
+    "row_count": 468400
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 25,
+    "elapsed_seconds": 0.169506,
+    "row_count": 585500
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 30,
+    "elapsed_seconds": 0.140747,
+    "row_count": 702600
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 35,
+    "elapsed_seconds": 0.165991,
+    "row_count": 819700
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 40,
+    "elapsed_seconds": 0.192478,
+    "row_count": 936800
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 45,
+    "elapsed_seconds": 0.17546,
+    "row_count": 1053900
+  },
+  {
+    "strategy": "Silver JOIN",
+    "scale_factor": 50,
+    "elapsed_seconds": 0.157602,
+    "row_count": 1171000
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 1,
+    "elapsed_seconds": 0.039707,
+    "row_count": 23420
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 2,
+    "elapsed_seconds": 0.03718,
+    "row_count": 46840
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 3,
+    "elapsed_seconds": 0.037612,
+    "row_count": 70260
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 4,
+    "elapsed_seconds": 0.040798,
+    "row_count": 93680
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 5,
+    "elapsed_seconds": 0.039145,
+    "row_count": 117100
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 6,
+    "elapsed_seconds": 0.034216,
+    "row_count": 140520
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 7,
+    "elapsed_seconds": 0.033736,
+    "row_count": 163940
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 8,
+    "elapsed_seconds": 0.031218,
+    "row_count": 187360
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 9,
+    "elapsed_seconds": 0.030778,
+    "row_count": 210780
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 10,
+    "elapsed_seconds": 0.03175,
+    "row_count": 234200
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 15,
+    "elapsed_seconds": 0.026608,
+    "row_count": 351300
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 20,
+    "elapsed_seconds": 0.034571,
+    "row_count": 468400
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 25,
+    "elapsed_seconds": 0.034783,
+    "row_count": 585500
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 30,
+    "elapsed_seconds": 0.029572,
+    "row_count": 702600
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 35,
+    "elapsed_seconds": 0.024764,
+    "row_count": 819700
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 40,
+    "elapsed_seconds": 0.036299,
+    "row_count": 936800
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 45,
+    "elapsed_seconds": 0.029271,
+    "row_count": 1053900
+  },
+  {
+    "strategy": "Gold",
+    "scale_factor": 50,
+    "elapsed_seconds": 0.026173,
+    "row_count": 1171000
+  }
+]

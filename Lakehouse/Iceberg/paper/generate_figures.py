@@ -545,9 +545,10 @@ def fig6_supplementary():
     ax.annotate("4.8\u00d7", xy=(1, vals_m[1]), xytext=(0, 10), textcoords="offset points",
                 ha="center", fontsize=11, fontweight="bold", color=C_PYTHON)
 
-    fig.tight_layout(pad=2.0)
+    fig.tight_layout(pad=3.0)
+    fig.subplots_adjust(left=0.06)
     fig.suptitle("Supplementary Iceberg Features — Validated on KAIST Dataset", fontsize=13, fontweight="bold", y=1.03)
-    fig.savefig(OUT / "supplementary_benchmarks.png", dpi=200, bbox_inches="tight", pad_inches=0.4)
+    fig.savefig(OUT / "supplementary_benchmarks.png", dpi=200, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"  ✓ {OUT / 'supplementary_benchmarks.png'}")
 

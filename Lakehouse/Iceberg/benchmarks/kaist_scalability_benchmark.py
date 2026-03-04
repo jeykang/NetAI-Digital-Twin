@@ -43,8 +43,8 @@ KAIST_DATA_PATH = os.environ.get("KAIST_SOURCE_PATH", "/user_data/kaist-simulate
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_JSON = os.path.join(SCRIPT_DIR, "kaist_scalability_results.json")
 
-# Dense from 1-10, then every-5 to 50 → 18 scale factors
-SCALE_FACTORS = list(range(1, 11)) + [15, 20, 25, 30, 35, 40, 45, 50]
+# 1, then every 100 up to 1000 → 11 scale factors
+SCALE_FACTORS = [1] + list(range(100, 1001, 100))
 
 BASELINE_RUNS = 5
 SPARK_WARMUP = 1

@@ -458,35 +458,39 @@ def fig5_scalability():
         ax.plot(sfs, times, marker=marker, label=strat, color=color,
                 linewidth=2.2, markersize=5, zorder=3)
 
-    # Highlight 100 ms reference line
+    # Highlight reference lines
     ax.axhline(y=100, color="#999", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax.text(51, 100, "100 ms", fontsize=8, color="#999", va="bottom")
+    ax.text(1020, 100, "100 ms", fontsize=8, color="#999", va="bottom")
+    ax.axhline(y=1000, color="#999", linestyle="--", linewidth=0.8, alpha=0.4)
+    ax.text(1020, 1000, "1 s", fontsize=8, color="#999", va="bottom")
 
-    # Annotations at SF=50
-    ax.annotate("111 ms", xy=(50, 111), xytext=(44, 145), fontsize=9, color=C_PYTHON,
+    # Annotations at SF=1000
+    ax.annotate("4,661 ms", xy=(1000, 4661), xytext=(850, 4200), fontsize=9, color=C_PYTHON,
                 fontweight="bold", arrowprops=dict(arrowstyle="-", color=C_PYTHON, lw=0.8))
-    ax.annotate("158 ms", xy=(50, 158), xytext=(44, 195), fontsize=9, color=C_SILVER,
+    ax.annotate("1,204 ms", xy=(1000, 1204), xytext=(850, 1600), fontsize=9, color=C_SILVER,
                 fontweight="bold", arrowprops=dict(arrowstyle="-", color=C_SILVER, lw=0.8))
-    ax.annotate("26 ms", xy=(50, 26), xytext=(44, 55), fontsize=9, color=C_GOLD,
-                fontweight="bold", arrowprops=dict(arrowstyle="-", color=C_GOLD, lw=0.8))
+    ax.annotate("33 ms", xy=(1000, 33), xytext=(900, 350), fontsize=9, color=C_GOLD,
+                fontweight="bold", arrowprops=dict(arrowstyle="->", color=C_GOLD, lw=0.8))
 
-    # Python–Gold crossover annotation
-    ax.annotate("Python–Gold\ncrossover ≈ SF 20", xy=(20, 45), xytext=(28, 250),
-                fontsize=8.5, color="#555", ha="center",
-                arrowprops=dict(arrowstyle="->", color="#555", lw=0.8))
-
-    # Speedup box at SF=50
-    ax.text(3, 280, "Gold ~4.3× faster than Python\n"
-                     "Gold ~6.0× faster than Silver\nat SF 50",
-            fontsize=9.5, fontweight="bold", color=C_GOLD,
+    # Speedup box at SF=1000
+    ax.text(30, 3800, "At SF 1000× (23.4 M rows):\n"
+                      "Gold 140× faster than Python\n"
+                      "Gold  36× faster than Silver",
+            fontsize=10, fontweight="bold", color=C_GOLD,
             bbox=dict(boxstyle="round,pad=0.4", facecolor="#F0FFF0", edgecolor=C_GOLD, alpha=0.85))
+
+    # Gold flat-line annotation
+    ax.annotate("Gold remains flat:\n29–49 ms across all SFs",
+                xy=(500, 40), xytext=(300, 700),
+                fontsize=9, color="#555", ha="center",
+                arrowprops=dict(arrowstyle="->", color="#555", lw=0.8))
 
     ax.set_xlabel("Scale Factor", fontsize=12)
     ax.set_ylabel("Query Latency (ms)", fontsize=12)
-    ax.set_title("Scalability: Latency vs. Data Scale (KAIST Tiers, 1\u00d7\u201350\u00d7)", fontsize=14, fontweight="bold", pad=15)
+    ax.set_title("Scalability: Latency vs. Data Scale (KAIST Tiers, 1\u00d7\u20131000\u00d7)", fontsize=14, fontweight="bold", pad=15)
     ax.legend(fontsize=11, loc="upper left")
-    ax.set_xlim(0, 55)
-    ax.set_ylim(0, 375)
+    ax.set_xlim(-20, 1080)
+    ax.set_ylim(0, 5500)
     fig.tight_layout(pad=1.5)
 
     fig.savefig(OUT / "scalability.png", dpi=200, bbox_inches="tight", pad_inches=0.3)

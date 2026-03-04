@@ -2,325 +2,325 @@
   {
     "strategy": "Python Baseline",
     "scale_factor": 1,
-    "elapsed_seconds": 0.001683,
+    "elapsed_seconds": 0.001753,
     "row_count": 2342
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 2,
-    "elapsed_seconds": 0.003467,
+    "elapsed_seconds": 0.003647,
     "row_count": 4684
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 3,
-    "elapsed_seconds": 0.004968,
+    "elapsed_seconds": 0.005457,
     "row_count": 7026
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 4,
-    "elapsed_seconds": 0.006678,
+    "elapsed_seconds": 0.007215,
     "row_count": 9368
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 5,
-    "elapsed_seconds": 0.008455,
+    "elapsed_seconds": 0.00922,
     "row_count": 11710
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 6,
-    "elapsed_seconds": 0.010211,
+    "elapsed_seconds": 0.010923,
     "row_count": 14052
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 7,
-    "elapsed_seconds": 0.012084,
+    "elapsed_seconds": 0.013031,
     "row_count": 16394
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 8,
-    "elapsed_seconds": 0.014006,
+    "elapsed_seconds": 0.01518,
     "row_count": 18736
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 9,
-    "elapsed_seconds": 0.015555,
+    "elapsed_seconds": 0.01667,
     "row_count": 21078
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 10,
-    "elapsed_seconds": 0.017345,
+    "elapsed_seconds": 0.018607,
     "row_count": 23420
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 15,
-    "elapsed_seconds": 0.033705,
+    "elapsed_seconds": 0.036199,
     "row_count": 35130
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 20,
-    "elapsed_seconds": 0.044617,
+    "elapsed_seconds": 0.047695,
     "row_count": 46840
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 25,
-    "elapsed_seconds": 0.055664,
+    "elapsed_seconds": 0.059716,
     "row_count": 58550
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 30,
-    "elapsed_seconds": 0.06564,
+    "elapsed_seconds": 0.070456,
     "row_count": 70260
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 35,
-    "elapsed_seconds": 0.07867,
+    "elapsed_seconds": 0.083591,
     "row_count": 81970
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 40,
-    "elapsed_seconds": 0.090853,
+    "elapsed_seconds": 0.096222,
     "row_count": 93680
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 45,
-    "elapsed_seconds": 0.098101,
+    "elapsed_seconds": 0.105184,
     "row_count": 105390
   },
   {
     "strategy": "Python Baseline",
     "scale_factor": 50,
-    "elapsed_seconds": 0.111402,
+    "elapsed_seconds": 0.118514,
     "row_count": 117100
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 1,
-    "elapsed_seconds": 0.31512,
+    "elapsed_seconds": 0.266018,
     "row_count": 23420
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 2,
-    "elapsed_seconds": 0.187567,
+    "elapsed_seconds": 0.180417,
     "row_count": 46840
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 3,
-    "elapsed_seconds": 0.204381,
+    "elapsed_seconds": 0.125294,
     "row_count": 70260
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 4,
-    "elapsed_seconds": 0.153673,
+    "elapsed_seconds": 0.107024,
     "row_count": 93680
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 5,
-    "elapsed_seconds": 0.17603,
+    "elapsed_seconds": 0.109112,
     "row_count": 117100
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 6,
-    "elapsed_seconds": 0.158514,
+    "elapsed_seconds": 0.156604,
     "row_count": 140520
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 7,
-    "elapsed_seconds": 0.15391,
+    "elapsed_seconds": 0.11489,
     "row_count": 163940
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 8,
-    "elapsed_seconds": 0.164792,
+    "elapsed_seconds": 0.145269,
     "row_count": 187360
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 9,
-    "elapsed_seconds": 0.131973,
+    "elapsed_seconds": 0.119301,
     "row_count": 210780
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 10,
-    "elapsed_seconds": 0.144605,
+    "elapsed_seconds": 0.145378,
     "row_count": 234200
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 15,
-    "elapsed_seconds": 0.161143,
+    "elapsed_seconds": 0.114413,
     "row_count": 351300
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 20,
-    "elapsed_seconds": 0.157639,
+    "elapsed_seconds": 0.160051,
     "row_count": 468400
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 25,
-    "elapsed_seconds": 0.169506,
+    "elapsed_seconds": 0.141904,
     "row_count": 585500
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 30,
-    "elapsed_seconds": 0.140747,
+    "elapsed_seconds": 0.187958,
     "row_count": 702600
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 35,
-    "elapsed_seconds": 0.165991,
+    "elapsed_seconds": 0.166684,
     "row_count": 819700
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 40,
-    "elapsed_seconds": 0.192478,
+    "elapsed_seconds": 0.201655,
     "row_count": 936800
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 45,
-    "elapsed_seconds": 0.17546,
+    "elapsed_seconds": 0.204537,
     "row_count": 1053900
   },
   {
     "strategy": "Silver JOIN",
     "scale_factor": 50,
-    "elapsed_seconds": 0.157602,
+    "elapsed_seconds": 0.205814,
     "row_count": 1171000
   },
   {
     "strategy": "Gold",
     "scale_factor": 1,
-    "elapsed_seconds": 0.039707,
+    "elapsed_seconds": 0.027311,
     "row_count": 23420
   },
   {
     "strategy": "Gold",
     "scale_factor": 2,
-    "elapsed_seconds": 0.03718,
+    "elapsed_seconds": 0.034747,
     "row_count": 46840
   },
   {
     "strategy": "Gold",
     "scale_factor": 3,
-    "elapsed_seconds": 0.037612,
+    "elapsed_seconds": 0.029078,
     "row_count": 70260
   },
   {
     "strategy": "Gold",
     "scale_factor": 4,
-    "elapsed_seconds": 0.040798,
+    "elapsed_seconds": 0.037169,
     "row_count": 93680
   },
   {
     "strategy": "Gold",
     "scale_factor": 5,
-    "elapsed_seconds": 0.039145,
+    "elapsed_seconds": 0.037093,
     "row_count": 117100
   },
   {
     "strategy": "Gold",
     "scale_factor": 6,
-    "elapsed_seconds": 0.034216,
+    "elapsed_seconds": 0.03604,
     "row_count": 140520
   },
   {
     "strategy": "Gold",
     "scale_factor": 7,
-    "elapsed_seconds": 0.033736,
+    "elapsed_seconds": 0.030076,
     "row_count": 163940
   },
   {
     "strategy": "Gold",
     "scale_factor": 8,
-    "elapsed_seconds": 0.031218,
+    "elapsed_seconds": 0.037708,
     "row_count": 187360
   },
   {
     "strategy": "Gold",
     "scale_factor": 9,
-    "elapsed_seconds": 0.030778,
+    "elapsed_seconds": 0.035714,
     "row_count": 210780
   },
   {
     "strategy": "Gold",
     "scale_factor": 10,
-    "elapsed_seconds": 0.03175,
+    "elapsed_seconds": 0.032669,
     "row_count": 234200
   },
   {
     "strategy": "Gold",
     "scale_factor": 15,
-    "elapsed_seconds": 0.026608,
+    "elapsed_seconds": 0.036742,
     "row_count": 351300
   },
   {
     "strategy": "Gold",
     "scale_factor": 20,
-    "elapsed_seconds": 0.034571,
+    "elapsed_seconds": 0.037191,
     "row_count": 468400
   },
   {
     "strategy": "Gold",
     "scale_factor": 25,
-    "elapsed_seconds": 0.034783,
+    "elapsed_seconds": 0.033775,
     "row_count": 585500
   },
   {
     "strategy": "Gold",
     "scale_factor": 30,
-    "elapsed_seconds": 0.029572,
+    "elapsed_seconds": 0.026775,
     "row_count": 702600
   },
   {
     "strategy": "Gold",
     "scale_factor": 35,
-    "elapsed_seconds": 0.024764,
+    "elapsed_seconds": 0.024417,
     "row_count": 819700
   },
   {
     "strategy": "Gold",
     "scale_factor": 40,
-    "elapsed_seconds": 0.036299,
+    "elapsed_seconds": 0.035988,
     "row_count": 936800
   },
   {
     "strategy": "Gold",
     "scale_factor": 45,
-    "elapsed_seconds": 0.029271,
+    "elapsed_seconds": 0.024264,
     "row_count": 1053900
   },
   {
     "strategy": "Gold",
     "scale_factor": 50,
-    "elapsed_seconds": 0.026173,
+    "elapsed_seconds": 0.032714,
     "row_count": 1171000
   }
 ]

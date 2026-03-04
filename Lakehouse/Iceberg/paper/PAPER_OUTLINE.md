@@ -25,9 +25,9 @@ scripts without schema enforcement, ACID guarantees, or query optimization.
 Iceberg with domain-aware partitioning and pre-computed Gold tables targeting
 three AD workloads (object detection, SLAM, sensor fusion).
 *Results:* Gold tables deliver 2–3× speedup over Silver-layer runtime joins
-across all three workloads; on nuScenes with synthetic scaling to 50×, the
-optimized layout achieves ~8× speedup over a conventional Python baseline
-while maintaining sub-100 ms query latency.
+across all three workloads. Under synthetic scaling to 1000× (23.4 M rows),
+the Gold layer maintains constant ~33 ms latency — **140× faster** than a
+Python baseline (4.66 s) and **36× faster** than Silver-layer joins (1.20 s).
 
 ---
 
@@ -39,23 +39,24 @@ while maintaining sub-100 ms query latency.
 - **Contributions:**
   1. A medallion (Bronze → Silver → Gold) Iceberg lakehouse with domain-aware partitioning aligned to AD ML training access patterns
   2. Workload-specific Gold tables for object detection, SLAM, and sensor fusion that eliminate runtime joins
-  3. Quantitative evaluation: 2–3× Gold vs. Silver speedup across three AD workloads; ~8× vs. Python baseline at 50× data scale on nuScenes
+  3. Quantitative evaluation on actual KAIST medallion tiers: 2–3× Gold vs. Silver speedup across three AD workloads; **140× vs. Python baseline** at 1000× data scale (23.4 M rows) with constant ~33 ms Gold latency
 
 ---
 
 ## II. System Design (~0.9 col)
 
 ### II-A. Architecture Overview
-- Five-service Docker Compose stack: Spark 3.5.5 (ETL), Polaris REST catalog, MinIO (S3 storage), Trino (interactive SQL), Superset (BI)
-- Single Iceberg v2 catalog shared across all engines → unified metadata
+- Seven-service Docker Compose stack (dev): Spark 3.5.5 (ETL), Polaris REST catalog, MinIO (S3-compatible storage), Trino 479 (interactive SQL), Superset (BI dashboards), PostgreSQL + Redis (Superset backend)
+- Production target: Ceph S3 + Kubernetes (Docker Compose is dev/benchmark environment only)
+- Single Iceberg v2 catalog shared across all engines → unified metadata, engine-agnostic table access
 
-> **Fig. 1** — System architecture (1 diagram, ~⅓ col): Query Layer → Catalog → Iceberg v2 → S3 Storage
-> Source: `docker-compose.yml`
+> **Fig. 1** — System architecture data-flow diagram (~⅓ col): Host ↔ Docker layers (BI → Compute → Infrastructure)
+> Source: `docker-compose.yml`; generated as `paper/figures/data_flow.png`
 
 ### II-B. Data Model
-- Proposed **3-level hierarchy** (Session → Clip → Frame → Sensors + Annotations) generalizing nuScenes' 2-level model for long-duration, multi-session AD recordings
+- Proposed **3-level hierarchy** (Session → Clip → Frame → Sensors + Annotations) designed for long-duration, multi-session AD recordings
 - 14 entity types with named geometric structs (SE3, Quaternion, Box3D)
-- Validated via simulated data (derived from nuScenes) and the public nuScenes v1.0-mini dataset
+- Validated via simulated data conforming to the proposed schema
 
 ### II-C. Medallion Layers
 - **Bronze:** 1:1 JSON ingestion into 14 Iceberg tables — preserves lineage, no transformations
@@ -79,84 +80,111 @@ while maintaining sub-100 ms query latency.
 ## III. Evaluation (~0.9 col)
 
 ### III-A. Setup
-- **Datasets:** (1) KAIST-simulated 3-level dataset (14 tables, 140 K camera annotations, 3 935 frames) for Gold vs. Silver workload comparison; (2) nuScenes v1.0-mini (public) with synthetic 1×–50× scaling (18 sample points) for scalability
-- **Environment:** Single-node Docker, Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO
-- **Methodology:** 2 warmup + 5 timed runs, median; `count()` action to isolate scan+join time
+- **Dataset:** Simulated 3-level dataset conforming to the proposed schema (14 Bronze tables, 11 Silver tables, 3 Gold tables; 140 080 camera annotations, 3 935 frames, 14 008 LiDAR scans)
+- **Environment:** Single-node Docker, Spark 3.5.5, Iceberg 1.8.1, Polaris REST catalog, MinIO S3
+- **Methodology:** 2 warmup + 3–5 timed runs, median; `count()` action to isolate scan+join time from serialization
+- **Scalability:** Synthetic replication of fact tables (camera, dynamic_object for Silver; camera_annotations for Gold) at SF 1–1000× while dimension tables remain at 1× — realistic growth model where sessions accumulate sensor data
 
 ### III-B. Experiment 1 — Gold vs. Silver for Three AD Workloads
 - Directly validates the core claim: workload-specific Gold tables eliminate runtime joins
+- Queries the **actual** `kaist_gold.*` and `kaist_silver.*` Iceberg tables via Spark SQL
 
-| Workload | Gold (s) | Silver JOIN (s) | Speedup | Rows |
+| Workload | Gold (ms) | Silver JOIN (ms) | Speedup | Rows |
 |---|---|---|---|---|
-| Object detection | 0.079 | 0.255 | **3.2×** | 23 150 |
-| SLAM / localization | 0.064 | 0.138 | **2.2×** | 389 |
-| Sensor fusion | 0.049 | 0.099 | **2.0×** | 389 |
+| Object detection | 79 | 255 | **3.2×** | 23 150 |
+| SLAM / localization | 64 | 138 | **2.2×** | 389 |
+| Sensor fusion | 49 | 99 | **2.0×** | 389 |
 
 > **Fig. 2** — Grouped bar chart: Gold vs. Silver latency per workload
-> Source: `benchmarks/benchmark_results.json` Exp 1
+> Source: `benchmarks/benchmark_results.json` (Three-Workload experiment); generated as `paper/figures/workload_benchmark.png`
 
-### III-C. Experiment 2 — Scalability (nuScenes)
-- Workload: "Retrieve front-camera images with adult-pedestrian 3D annotations"
-- Three strategies: (1) Pure Python nested-loop, (2) Spark Iceberg Silver join, (3) Spark Iceberg Gold table
+### III-C. Experiment 2 — Scalability (KAIST Tiers, SF 1–1000×)
+- Workload: "Assemble all front-camera images + annotations + calibration for object detection training" — the same 6-table join pattern used by `build_gold.build_camera_annotations()`
+- Three strategies on **actual KAIST medallion tiers:** (1) Pure Python dict-lookup join over KAIST JSON files, (2) Spark Iceberg Silver 6-table JOIN (`kaist_silver.*`), (3) Spark Iceberg Gold single-table scan (`kaist_gold.camera_annotations`, partitioned by `camera_name`)
+- Fact tables scaled synthetically 1×–1000× (11 data points); dimension tables held at 1×
 
-| Scale Factor | Python (s) | Silver JOIN (s) | Gold (s) |
-|---|---|---|---|
-| 1× | 0.015 | 0.267 | 0.042 |
-| 10× | 0.153 | 0.198 | 0.060 |
-| 25× | 0.373 | 0.351 | 0.073 |
-| 50× | **0.733** | 0.499 | **0.087** |
+| Scale Factor | Python (ms) | Silver JOIN (ms) | Gold (ms) | Gold Rows |
+|---|---|---|---|---|
+| 1× | 1.8 | 277 | 42 | 23 420 |
+| 100× | 301 | 341 | 41 | 2 342 000 |
+| 500× | 2 041 | 700 | 31 | 11 710 000 |
+| 1000× | **4 661** | **1 204** | **33** | 23 420 000 |
 
-- Gold maintains sub-100 ms across entire 1×–50× range; Python degrades linearly → **~8.4× gap** at 50×
-- Silver JOIN crosses Python at SF ≈ 20 (both ~0.297 s); sub-linear growth to 0.499 s at 50×
-- At low SF, Spark's JIT overhead makes Python faster; the gap inverts and widens with scale
+- **Gold latency is constant** (~29–49 ms) across the entire 1×–1000× range — Iceberg partition pruning confines the scan to a single `camera_name` partition regardless of total table size
+- Python degrades linearly (O(n) dict lookups): 1.8 ms → 4.66 s — a **140× gap** vs. Gold at SF 1000
+- Silver JOIN grows sub-linearly (Spark optimizer + columnar I/O): 277 ms → 1.20 s — a **36× gap** vs. Gold at SF 1000
+- At low SF, Spark's JIT overhead makes Python faster; by SF ~100 Python is already slower than both Spark strategies
 
-> **Fig. 3** — Line chart: latency vs. scale factor for three strategies (18 sample points, SF 1–50)
-> Source: `nuscenes_experiment/README.md` §5; `scalability_chart.png`; `scalability_results.json`
+> **Fig. 3** — Line chart: latency vs. scale factor for 3 strategies (11 data points, SF 1–1000)
+> Source: `benchmarks/kaist_scalability_benchmark.py`; `benchmarks/kaist_scalability_results.json`; generated as `paper/figures/scalability.png`
+
+### III-D. Supplementary Experiments
+
+Three additional micro-benchmarks validate Iceberg-specific features on the KAIST lakehouse:
+
+| Experiment | Key Result | Source |
+|---|---|---|
+| **Partition Pruning** | Combined sensor + clip filter on `camera_annotations` reduces scanned data from 140 080 → 2 290 rows (98.4% skipped); 0.62 s vs. 3.35 s unpartitioned | `benchmark_results.json` Exp 2 |
+| **Temporal Replay** | Gold `lidar_with_ego` temporal range query: 81 ms vs. Silver JOIN 143 ms (1.8× speedup); Iceberg sort-order enables efficient timestamp scans | `benchmark_results.json` Exp 3 |
+| **Column Metrics** | Narrow timestamp filter on Silver `lidar` table: 18 ms (min/max metadata skips non-matching files) vs. 87 ms full scan (4.7× speedup) | `benchmark_results.json` Exp 5 |
+
+> **Fig. 4** — Three-panel supplementary chart (pruning, replay, column metrics)
+> Source: `benchmarks/benchmark_results.json` Exps 2, 3, 5; generated as `paper/figures/supplementary_benchmarks.png`
 
 ---
 
 ## IV. Conclusion & Future Work (~0.25 col)
 
-- A medallion-architecture Iceberg lakehouse with domain-aware partitioning and pre-computed Gold tables delivers 2–3× speedup for three core AD ML workloads and scales to ~8× vs. Python baselines at 50× data scale
-- The architecture additionally supports partition pruning (83.3% data skipped on sensor filters), Iceberg time travel for training-set pinning, and column-level metrics for timestamp predicate pushdown — validated in supplementary experiments
-- **Limitations:** single-node benchmarks; simulated 3-level data; scalability beyond nuScenes-mini is analytical; three entity types use placeholder schemas
-- **Future work:** production-scale validation, streaming ingestion for live vehicle data, direct PyTorch DataLoader integration from Gold Iceberg tables
+- A medallion-architecture Iceberg lakehouse with domain-aware partitioning and pre-computed Gold tables delivers 2–3× speedup for three core AD ML workloads and **140× speedup** vs. Python baselines at 1000× data scale (23.4 M rows), with constant ~33 ms Gold latency
+- Iceberg-native features provide additional gains: partition pruning (98.4% data skipped), time travel for training-set pinning, sort orders for temporal replay (1.8× Gold vs. Silver), and column-level metrics for predicate pushdown (4.7× speedup)
+- **Limitations:** single-node benchmarks (no distributed Spark); simulated 3-level data derived from nuScenes-mini; three entity types (`occupancy`, `motion`, `session_ego_motion`) use placeholder schemas
+- **Future work:** production-scale validation on Ceph + Kubernetes, streaming ingestion for live vehicle data, direct PyTorch DataLoader integration from Gold Iceberg tables
 
 ---
 
 ## Figures & Tables Summary (2-page budget)
 
-| # | Type | Caption (working) | Source |
-|---|------|-------------------|--------|
-| Fig. 1 | Architecture diagram | System architecture: layered stack | `docker-compose.yml` |
-| Fig. 2 | Grouped bar chart | Gold vs. Silver latency for 3 AD workloads | `benchmarks/benchmark_results.json` Exp 1 |
-| Fig. 3 | Line chart | Latency vs. scale factor (3 strategies, SF 1–50) | `nuscenes_experiment/scalability_chart.png` |
-| Table 1 | Inline | Gold table designs (§II-C) | `build_gold.py` |
-| Table 2 | Inline | Three-workload benchmark (§III-B) | `benchmark_results.json` Exp 1 |
-| Table 3 | Inline | nuScenes scalability (§III-C) | `nuscenes_experiment/scalability_results.json` |
+| # | Type | Caption (working) | File | Status |
+|---|------|-------------------|------|--------|
+| Fig. 1 | Data-flow diagram | System architecture: layered Docker stack | `paper/figures/data_flow.png` | ✅ Generated |
+| Fig. 2 | Grouped bar chart | Gold vs. Silver latency for 3 AD workloads | `paper/figures/workload_benchmark.png` | ✅ Generated |
+| Fig. 3 | Line chart | Latency vs. scale factor (3 strategies, SF 1–1000) | `paper/figures/scalability.png` | ✅ Generated |
+| Fig. 4 | 3-panel chart | Supplementary: pruning, replay, column metrics | `paper/figures/supplementary_benchmarks.png` | ✅ Generated |
+| Table 1 | Inline | Gold table designs (§II-C) | — | In outline |
+| Table 2 | Inline | Three-workload benchmark (§III-B) | — | In outline |
+| Table 3 | Inline | Scalability at key SFs (§III-C) | `paper/figures/scalability_table.png` | ✅ Generated |
+| Table 4 | Inline | Supplementary experiments summary (§III-D) | — | In outline |
 
-> **Space estimate:** 1 architecture diagram (~⅓ col) + 2 result figures (~⅓ col each) + 3 small inline tables ≈ fits within 2 IEEE two-column pages with ~0.25 page for references.
+**Additional generated figures** (available for supplementary / poster use):
+
+| File | Content |
+|---|---|
+| `paper/figures/data_model.png` | KAIST 3-level hierarchy (Session → Clip → Frame) |
+| `paper/figures/medallion.png` | Bronze → Silver → Gold pipeline flow |
+| `paper/figures/gold_tables.png` | Gold table structure + partition / sort details |
+| `paper/figures/validation.png` | 20-check data quality dashboard |
+
+> **Space estimate:** 1 architecture diagram (~⅓ col) + 2 result figures (~⅓ col each) + optional supplementary panel + 3–4 small inline tables ≈ fits within 2 IEEE two-column pages with ~0.25 page for references.
 
 ---
 
-## Remaining Implementation Notes
+## Implementation Status
 
-> **Status (updated):** The full pipeline (Bronze → Silver → Gold → Validate)
-> runs end-to-end successfully (all 20 validations pass, ~24 s). All experiment
-> scripts use the Polaris REST catalog, and all benchmark results are exported
-> to `benchmarks/benchmark_results.json`.
+> **Status (2026-03-04):** All pipeline stages, benchmarks, and figures are complete.
+
+| Component | Status | Notes |
+|---|---|---|
+| Bronze → Silver → Gold pipeline | ✅ Complete | 14 → 11 → 3 tables; all 20 validations pass (~24 s) |
+| Three-workload benchmark | ✅ Complete | `benchmarks/ad_workload_benchmark.py` (1001 lines, 5 experiments) |
+| Scalability benchmark (SF 1–1000) | ✅ Complete | `benchmarks/kaist_scalability_benchmark.py` (355 lines, 33 results) |
+| All figures (8 + 1 table image) | ✅ Generated | `paper/figures/*.png` via `paper/generate_figures.py` |
+| Mermaid diagrams | ✅ Available | Docker setup diagram |
 
 ### Known Limitations (non-blocking for paper)
 
 | # | Item | Detail | Impact |
 |---|------|--------|--------|
-| D2 | **Silver skips 3 tables** | `occupancy`, `motion`, `session_ego_motion` have no Silver transform; Bronze only. Gold tables do not reference them. | Noted in §IV Limitations. |
-| D3 | **Placeholder schemas** | `OccupancySchema` and `MotionSchema` use `StringType` placeholder fields. Simulated data files contain empty arrays. | No impact on results. |
-
-### Remaining Figures to Produce
-
-| # | Outline ref | What's needed |
-|---|-------------|---------------|
-| C1 | Fig. 1 (§II-A) | System architecture diagram (draw.io / TikZ) from `docker-compose.yml` |
-| C2 | Fig. 2 (§III-B) | Grouped bar chart from `benchmark_results.json` Exp 1 |
-| C3 | Fig. 3 (§III-C) | nuScenes scalability line chart from `draw_result.ipynb` |
+| D1 | **Single-node only** | All benchmarks on single Docker node; no distributed Spark | Noted in §IV |
+| D2 | **Silver skips 3 tables** | `occupancy`, `motion`, `session_ego_motion` have no Silver transform; Bronze only. Gold tables do not reference them. | Noted in §IV |
+| D3 | **Placeholder schemas** | `OccupancySchema` and `MotionSchema` use `StringType` placeholder fields. Simulated data files contain empty arrays. | No impact on results |
+| D4 | **Scalability is synthetic** | Fact-table replication, not real additional driving sessions | Noted in §III-C |

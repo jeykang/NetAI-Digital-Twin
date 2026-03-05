@@ -39,7 +39,7 @@ Python baseline (4.66 s) and **36× faster** than Silver-layer joins (1.20 s).
 - **Contributions:**
   1. A medallion (Bronze → Silver → Gold) Iceberg lakehouse with domain-aware partitioning aligned to AD ML training access patterns
   2. Workload-specific Gold tables for object detection, SLAM, and sensor fusion that eliminate runtime joins
-  3. Quantitative evaluation on actual KAIST medallion tiers: 2–3× Gold vs. Silver speedup across three AD workloads; **140× vs. Python baseline** at 1000× data scale (23.4 M rows) with constant ~33 ms Gold latency
+  3. Quantitative evaluation on actual medallion tiers: 2–3× Gold vs. Silver speedup across three AD workloads; **140× vs. Python baseline** at 1000× data scale (23.4 M rows) with constant ~33 ms Gold latency
 
 ---
 
@@ -87,7 +87,7 @@ Python baseline (4.66 s) and **36× faster** than Silver-layer joins (1.20 s).
 
 ### III-B. Experiment 1 — Gold vs. Silver for Three AD Workloads
 - Directly validates the core claim: workload-specific Gold tables eliminate runtime joins
-- Queries the **actual** `kaist_gold.*` and `kaist_silver.*` Iceberg tables via Spark SQL
+- Queries the **actual** Gold and Silver Iceberg tables via Spark SQL
 
 | Workload | Gold (ms) | Silver JOIN (ms) | Speedup | Rows |
 |---|---|---|---|---|
@@ -98,9 +98,9 @@ Python baseline (4.66 s) and **36× faster** than Silver-layer joins (1.20 s).
 > **Fig. 2** — Grouped bar chart: Gold vs. Silver latency per workload
 > Source: `benchmarks/benchmark_results.json` (Three-Workload experiment); generated as `paper/figures/workload_benchmark.png`
 
-### III-C. Experiment 2 — Scalability (KAIST Tiers, SF 1–1000×)
+### III-C. Experiment 2 — Scalability (SF 1–1000×)
 - Workload: "Assemble all front-camera images + annotations + calibration for object detection training" — the same 6-table join pattern used by `build_gold.build_camera_annotations()`
-- Three strategies on **actual KAIST medallion tiers:** (1) Pure Python dict-lookup join over KAIST JSON files, (2) Spark Iceberg Silver 6-table JOIN (`kaist_silver.*`), (3) Spark Iceberg Gold single-table scan (`kaist_gold.camera_annotations`, partitioned by `camera_name`)
+- Three strategies on **actual medallion tiers:** (1) Pure Python dict-lookup join over original JSON files, (2) Spark Iceberg Silver 6-table JOIN (`silver.*`), (3) Spark Iceberg Gold single-table scan (`gold.camera_annotations`, partitioned by `camera_name`)
 - Fact tables scaled synthetically 1×–1000× (11 data points); dimension tables held at 1×
 
 | Scale Factor | Python (ms) | Silver JOIN (ms) | Gold (ms) | Gold Rows |
@@ -120,7 +120,7 @@ Python baseline (4.66 s) and **36× faster** than Silver-layer joins (1.20 s).
 
 ### III-D. Supplementary Experiments
 
-Three additional micro-benchmarks validate Iceberg-specific features on the KAIST lakehouse:
+Three additional micro-benchmarks validate Iceberg-specific features on the lakehouse:
 
 | Experiment | Key Result | Source |
 |---|---|---|
@@ -159,7 +159,7 @@ Three additional micro-benchmarks validate Iceberg-specific features on the KAIS
 
 | File | Content |
 |---|---|
-| `paper/figures/data_model.png` | KAIST 3-level hierarchy (Session → Clip → Frame) |
+| `paper/figures/data_model.png` | 3-level hierarchy (Session → Clip → Frame) |
 | `paper/figures/medallion.png` | Bronze → Silver → Gold pipeline flow |
 | `paper/figures/gold_tables.png` | Gold table structure + partition / sort details |
 | `paper/figures/validation.png` | 20-check data quality dashboard |

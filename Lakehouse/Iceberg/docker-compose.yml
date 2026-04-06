@@ -174,8 +174,17 @@ services:
       - ./nuscenes_experiment:/opt/spark/nuscenes_experiment # For Iceberg Experiment
       - ./kaist_ingestion:/opt/spark/kaist_ingestion # KAIST E2E Dataset Ingestion Pipeline
       - ./benchmarks:/opt/spark/benchmarks # AD Workload Benchmarks
-    # Keep container running without starting Thrift server
-    entrypoint: /bin/sh -c "tail -f /dev/null"
+      - ./nvidia_ingestion:/opt/spark/nvidia_ingestion # Nvidia PhysicalAI Dataset Pipeline
+      - /mnt/datax:/mnt/datax:ro # NFS-mounted Nvidia PhysicalAI dataset (read-only)
+    # FUSE support for in-container ratarmount of zip archives
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    # Add datax user (uid 1010) for NFS access, fix Spark dir permissions, then idle as datax.
+    entrypoint: /bin/sh -c "echo 'datax:x:1010:1010:datax:/tmp:/bin/bash' >> /etc/passwd && echo 'datax:x:1010:' >> /etc/group && chmod 777 /home/iceberg/spark-events && mkdir -p /tmp/derby && exec setpriv --reuid=1010 --regid=1010 --init-groups tail -f /dev/null"
 
   # 4. Trino (Query engine)
   trino:

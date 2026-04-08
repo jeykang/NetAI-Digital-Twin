@@ -175,7 +175,9 @@ services:
       - ./kaist_ingestion:/opt/spark/kaist_ingestion # KAIST E2E Dataset Ingestion Pipeline
       - ./benchmarks:/opt/spark/benchmarks # AD Workload Benchmarks
       - ./nvidia_ingestion:/opt/spark/nvidia_ingestion # Nvidia PhysicalAI Dataset Pipeline
-      - /mnt/datax:/mnt/datax:ro # NFS-mounted Nvidia PhysicalAI dataset (read-only)
+      - ./cosmos_augmentation:/opt/spark/cosmos_augmentation # Cosmos synthetic scene generation (optional)
+      # Host-specific NFS mounts live in docker-compose.override.yml
+      # (auto-merged by Docker Compose). See docker-compose.override.yml.example.
     # FUSE support for in-container ratarmount of zip archives
     devices:
       - /dev/fuse
@@ -184,7 +186,40 @@ services:
     security_opt:
       - apparmor:unconfined
     # Add datax user (uid 1010) for NFS access, fix Spark dir permissions, then idle as datax.
-    entrypoint: /bin/sh -c "echo 'datax:x:1010:1010:datax:/tmp:/bin/bash' >> /etc/passwd && echo 'datax:x:1010:' >> /etc/group && chmod 777 /home/iceberg/spark-events && mkdir -p /tmp/derby && exec setpriv --reuid=1010 --regid=1010 --init-groups tail -f /dev/null"
+    entrypoint: /bin/sh -c "echo 'datax:x:1010:1010:datax:/tmp:/bin/bash' >> /etc/passwd && echo 'hostuser:x:1000:1000:hostuser:/tmp:/bin/bash' >> /etc/passwd && echo 'datax:x:1010:' >> /etc/group && echo 'hostuser:x:1000:' >> /etc/group && echo 'netaie2e:x:1007:datax,hostuser' >> /etc/group && chmod 777 /home/iceberg/spark-events && mkdir -p /tmp/derby && exec setpriv --reuid=1000 --regid=1000 --init-groups tail -f /dev/null"
+
+  # ── Cosmos NIM (optional — requires NGC API key + NVIDIA GPU) ────────
+  # Uncomment to enable Nvidia Cosmos synthetic scene generation.
+  # Prerequisites:
+  #   1. Set NGC_API_KEY in .env (from https://ngc.nvidia.com)
+  #   2. Install nvidia-container-toolkit on the host
+  #   3. Uncomment the service block below and the cosmos_cache volume
+  # Usage: python -m cosmos_augmentation.cosmos_runner generate --max-clips 2
+  #
+  # cosmos:
+  #   image: nvcr.io/nim/nvidia/cosmos-transfer2-5-2b:latest
+  #   container_name: cosmos
+  #   runtime: nvidia
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - capabilities: [gpu]
+  #   environment:
+  #     - NGC_API_KEY=${NGC_API_KEY:-}
+  #   ports:
+  #     - "8000:8000"
+  #   shm_size: "16gb"
+  #   volumes:
+  #     - cosmos_cache:/opt/nim/.cache
+  #   networks:
+  #     - lakehouse_net
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 10
+  #     start_period: 300s
 
   # 4. Trino (Query engine)
   trino:
@@ -297,3 +332,4 @@ volumes:
   superset_home:
   superset_db_data:
   trino_data:
+  # cosmos_cache:  # Uncomment when enabling Cosmos NIM service

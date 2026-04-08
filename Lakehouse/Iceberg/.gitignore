@@ -5,6 +5,8 @@
 .env.*
 !.env.example
 example.env
+docker-compose.override.yml
+!docker-compose.override.yml.example
 
 # -----------------------------
 # Python
@@ -53,3 +55,5 @@ logs/
 user_data/
 
 kaist_ingestion/
+
+ngc_key.txt

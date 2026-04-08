@@ -1,0 +1,11 @@
+# Host-specific volume mounts.
+# Docker Compose merges this file automatically with docker-compose.yml.
+# Copy this file to docker-compose.override.yml and adjust paths for your machine.
+#
+# If you don't have NFS mounts, comment out or remove lines below —
+# the base stack will start fine without them.
+services:
+  spark-iceberg:
+    volumes:
+      - /mnt/datax:/mnt/datax:ro          # Full Nvidia PhysicalAI dataset (HF Hub)
+      - /mnt/netai-e2e:/mnt/netai-e2e     # Decimated subset + pipeline outputs

@@ -165,15 +165,27 @@ class NvidiaGoldBuilder:
         if self.tracker:
             self.tracker.begin("gold", "sensor_fusion_clip")
 
-        clip_index = self._read_silver("clip_index").withColumn("_row", monotonically_increasing_id())
-        data_coll = self._read_silver("data_collection").withColumn("_row", monotonically_increasing_id())
-        sensor_pres = self._read_silver("sensor_presence").withColumn("_row", monotonically_increasing_id())
-        veh_dim = self._read_silver("vehicle_dimensions").withColumn("_row", monotonically_increasing_id())
+        def _with_row(tbl):
+            return self._read_silver(tbl).withColumn("_row", monotonically_increasing_id())
+
+        def _dedup_join(left, right):
+            """Join on _row, dropping duplicate columns from right side."""
+            left_cols = set(left.columns)
+            # Rename duplicate columns in right (except _row join key)
+            dups = [c for c in right.columns if c in left_cols and c != "_row"]
+            for c in dups:
+                right = right.drop(c)
+            return left.join(right, on="_row", how="left")
+
+        clip_index = _with_row("clip_index")
+        data_coll  = _with_row("data_collection")
+        sensor_pres = _with_row("sensor_presence")
+        veh_dim    = _with_row("vehicle_dimensions")
 
         df = clip_index
-        df = df.join(data_coll, on="_row", how="left")
-        df = df.join(sensor_pres, on="_row", how="left")
-        df = df.join(veh_dim, on="_row", how="left")
+        df = _dedup_join(df, data_coll)
+        df = _dedup_join(df, sensor_pres)
+        df = _dedup_join(df, veh_dim)
         df = df.drop("_row")
 
         rows_out = self._write_gold(df, "sensor_fusion_clip", partition_by=["split"])
@@ -208,13 +220,23 @@ class NvidiaGoldBuilder:
 
         if self.view_mode:
             # Build a SQL UNION ALL view
+            # Silver radar views already include sensor_name, so don't add it again
             unions = []
             for rt in radar_tables:
-                sensor_name = rt.replace("radar_", "", 1)
-                unions.append(
-                    f"SELECT *, '{sensor_name}' AS sensor_name "
-                    f"FROM {self._silver(rt)}"
-                )
+                # Check if silver view already has sensor_name
+                try:
+                    cols = [f.name for f in self.spark.table(self._silver(rt)).schema]
+                    has_sensor = "sensor_name" in cols
+                except Exception:
+                    has_sensor = False
+                if has_sensor:
+                    unions.append(f"SELECT * FROM {self._silver(rt)}")
+                else:
+                    sensor_name = rt.replace("radar_", "", 1)
+                    unions.append(
+                        f"SELECT *, '{sensor_name}' AS sensor_name "
+                        f"FROM {self._silver(rt)}"
+                    )
             union_sql = " UNION ALL ".join(unions)
 
             sql = (

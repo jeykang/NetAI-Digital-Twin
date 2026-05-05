@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Must set before SparkSession import
 os.environ.setdefault(
-    "PYSPARK_SUBMIT_ARGS", "--driver-memory 4g pyspark-shell"
+    "PYSPARK_SUBMIT_ARGS", "--driver-memory 32g pyspark-shell"
 )
 
 from pyspark.sql import DataFrame, SparkSession

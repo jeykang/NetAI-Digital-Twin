@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
-os.environ["PYSPARK_SUBMIT_ARGS"] = "--driver-memory 4g pyspark-shell"
+os.environ["PYSPARK_SUBMIT_ARGS"] = "--driver-memory 32g pyspark-shell"
 from pyspark.sql import SparkSession
 
 

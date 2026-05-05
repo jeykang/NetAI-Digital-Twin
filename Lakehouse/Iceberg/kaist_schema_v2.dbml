@@ -1,0 +1,252 @@
+// ============================================================
+//  Autonomous Driving Dataset Schema
+// ============================================================
+
+
+// ===================== Clip / Episode ===================== //
+
+TableGroup clip_episode {
+  Session
+  Clip
+  Episode
+  Frame
+}
+
+Table Session {
+  session_id varchar [pk, note: 'str']
+  session_name varchar [note: 'str']
+  clip_id_list varchar [note: 'List<str>']
+}
+
+Table Clip {
+  clip_id varchar [pk, note: 'str']
+  session_id varchar [note: 'str']
+  clip_idx int 
+  frame_id_list varchar [note: 'List<str>']
+  date varchar [note: 'str, ISO-8601']
+  city varchar [note: 'str']
+  site varchar [note: 'str']
+}
+
+Table Episode {
+  episode_id varchar [pk, note: 'str']
+  from_clip_id varchar [note: 'str']
+  to_clip_id varchar [note: 'str']
+  frame_id_list varchar [note: 'List<str>']
+}
+
+Table Frame {
+  frame_id varchar [pk, note: 'str']
+  clip_id varchar [note: 'str']
+  episode_id varchar [note: 'str']
+  frame_idx int
+  sensor_timestamps varchar [note: 'List<long>']
+}
+
+
+// ======================== Sensors ========================= //
+
+TableGroup sensors {
+  Calibration
+  Camera
+  Lidar
+  Radar
+  CanBus
+}
+
+Table Calibration {
+  clip_id varchar [note: 'str']
+  sensor_name varchar [note: 'str']
+  extrinsics varchar [note: 'SE3']
+  camera_intrinsics varchar [note: 'matrix, Nullable']
+
+  indexes {
+    (clip_id, sensor_name) [pk]
+  }
+}
+
+Table Camera {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  system_timestamp bigint [note: 'long']
+  sensor_timestamp bigint [note: 'long']
+  camera_name varchar [note: 'str']
+  filename varchar [note: 'str']
+
+  indexes {
+    (clip_id, frame_id, camera_name) [pk]
+  }
+}
+
+Table Lidar {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  system_timestamp bigint [note: 'long']
+  sensor_timestamp bigint [note: 'long']
+  filename varchar [note: 'str']
+
+  indexes {
+    (clip_id, frame_id) [pk]
+  }
+}
+
+Table Radar {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  system_timestamp bigint [note: 'long']
+  sensor_timestamp bigint [note: 'long']
+  radar_name varchar [note: 'str']
+  filename varchar [note: 'str']
+
+  indexes {
+    (clip_id, frame_id, radar_name) [pk]
+  }
+}
+
+Table CanBus {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  system_timestamp bigint [note: 'long']
+  sensor_timestamp bigint [note: 'long']
+  filename varchar [note: 'str']
+
+  indexes {
+    (clip_id, frame_id) [pk]
+  }
+}
+
+
+// ======================== HD Map ========================== //
+
+TableGroup hd_map {
+  HDMap
+}
+
+Table HDMap {
+  filename varchar [pk, note: 'str']
+  city varchar [note: 'str']
+  site varchar [note: 'str']
+}
+
+// ====================== Annotation ======================== //
+
+TableGroup annotation {
+  Session_EgoMotion
+  Category
+  DynamicObject
+  Occupancy
+  Motion
+  EgoMotion
+}
+
+Table Session_EgoMotion {
+  session_id varchar [pk, note: 'str']
+  translation varchar [note: '(x,y,z)']
+  rotation varchar [note: 'quat']
+  start varchar [note: '(x,y,z)']
+  goal varchar [note: '(x,y,z)']
+}
+
+Table Category {
+  category varchar [pk]
+}
+
+Table DynamicObject {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  boxes_3d varchar [note: 'List<Float>']
+  category varchar [note: 'TBD - for Category ref']
+
+  indexes {
+    (clip_id, frame_id) [pk]
+  }
+}
+
+Table Occupancy {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  category varchar [note: 'TBD - for Category ref']
+
+  indexes {
+    (clip_id, frame_id) [pk]
+  }
+}
+
+Table Motion {
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+
+  indexes {
+    (clip_id, frame_id) [pk]
+  }
+}
+
+Table EgoMotion {
+  session_id varchar [note: 'str']
+  clip_id varchar [note: 'str']
+  frame_id varchar [note: 'str']
+  translation varchar [note: '(x,y,z)']
+  rotation varchar [note: 'quat']
+
+  indexes {
+    (session_id, clip_id, frame_id) [pk]
+  }
+}
+
+
+// ============================================================
+//  Relationships — PPT 3p 
+// ============================================================
+
+// 1: Session → Clip
+Ref: Clip.session_id > Session.session_id
+
+// 2: Session → Session_EgoMotion
+Ref: Session_EgoMotion.session_id > Session.session_id
+
+// 3: Clip → Episode 
+Ref: Episode.from_clip_id > Clip.clip_id
+Ref: Episode.to_clip_id > Clip.clip_id
+
+// 4: Clip → Calibration
+Ref: Calibration.clip_id > Clip.clip_id
+
+// 5: Clip → HDMap 
+Ref: Clip.city > HDMap.city
+Ref: Clip.site > HDMap.site
+
+// 6: Clip → Frame
+Ref: Frame.clip_id > Clip.clip_id
+
+// 7: Episode → Frame
+Ref: Frame.episode_id > Episode.episode_id
+
+// 8: Frame → Camera
+Ref: Camera.frame_id > Frame.frame_id
+
+// 9: Frame → Lidar
+Ref: Lidar.frame_id > Frame.frame_id
+
+// 10: Frame → Radar
+Ref: Radar.frame_id > Frame.frame_id
+
+// 11: Frame → CanBus
+Ref: CanBus.frame_id > Frame.frame_id
+
+// 12: Frame → DynamicObject
+Ref: DynamicObject.frame_id > Frame.frame_id
+
+// 13: Frame → Occupancy
+Ref: Occupancy.frame_id > Frame.frame_id
+
+// 14: Frame → Motion
+Ref: Motion.frame_id > Frame.frame_id
+
+// 15: Frame → EgoMotion
+Ref: EgoMotion.frame_id > Frame.frame_id
+
+// 16: Category → DynamicObject
+Ref: DynamicObject.category > Category.category
+
+// 17: Category → Occupancy
+Ref: Occupancy.category > Category.category

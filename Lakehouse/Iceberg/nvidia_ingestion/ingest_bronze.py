@@ -167,12 +167,13 @@ class NvidiaBronzeIngester:
         if self.tracker:
             self.tracker.begin("bronze", table)
 
-        tables = [pq.read_table(p) for p in paths]
-        combined = _concat_arrow_tables(tables)
-        rows_in = combined.num_rows
         bytes_in = sum(os.path.getsize(p) for p in paths)
 
-        df = self.spark.createDataFrame(combined.to_pandas())
+        # Let Spark read the parquets directly (parallel across cores)
+        abs_dir = os.path.join(self.src, subdir)
+        df = self.spark.read.parquet(f"file://{abs_dir}")
+        rows_in = df.count()
+
         full = self._full(table)
         df.writeTo(full).using("iceberg").tableProperty(
             "format-version", "2"
@@ -193,8 +194,18 @@ class NvidiaBronzeIngester:
         transform_fn=None,
         spark_schema=None,
         compression_override: Optional[str] = None,
+        batch_size: int = 20,
     ) -> int:
-        """Read parquets from zip archives, optionally transform, write to Iceberg."""
+        """Read parquets from zip archives in batches, write to Iceberg.
+
+        Processes *batch_size* zips at a time: extract matching parquets to a
+        local temp directory (with optional transform), let Spark read them
+        natively (parallel I/O across all cores), and append to the Iceberg
+        table.  This avoids loading the entire dataset into a single Arrow
+        table which doesn't scale beyond a few GB.
+        """
+        import shutil
+
         zips = self._zip_paths(subdir)
         if not zips:
             print(f"  [SKIP] no zips in {subdir}")
@@ -203,61 +214,85 @@ class NvidiaBronzeIngester:
         if self.tracker:
             self.tracker.begin("bronze", table)
 
-        all_tables: List[pa.Table] = []
-        bytes_in = 0
-        for zp in zips:
-            bytes_in += os.path.getsize(zp)
-            for _name, tbl in _read_parquets_from_zip(zp, suffix_filter):
-                if self._limit_clips and len(all_tables) >= self._limit_clips:
-                    break
-                if transform_fn:
-                    tbl = transform_fn(tbl)
-                all_tables.append(tbl)
-            if self._limit_clips and len(all_tables) >= self._limit_clips:
-                break
-
-        if not all_tables:
-            if self.tracker:
-                self.tracker.end()
-            return 0
-
-        combined = _concat_arrow_tables(all_tables)
-        n_parquets = len(all_tables)
-        del all_tables          # free individual Arrow tables
-        rows_in = combined.num_rows
-        if spark_schema is not None:
-            # Large array columns OOM PySpark's local serialization;
-            # write to temp Parquet and let Spark read via its own I/O.
-            tmp_dir = "/tmp/_decoded_staging"
-            import shutil
-            if os.path.exists(tmp_dir):
-                shutil.rmtree(tmp_dir)
-            os.makedirs(tmp_dir)
-            pq.write_table(combined, os.path.join(tmp_dir, "part-0.parquet"))
-            del combined        # free Arrow table before Spark read
-            df = self.spark.read.parquet(f"file://{tmp_dir}")
-        else:
-            pdf = combined.to_pandas()
-            del combined        # free Arrow table
-            df = self.spark.createDataFrame(pdf)
-            del pdf             # free pandas DataFrame
         full = self._full(table)
+        total_rows_in = 0
+        total_rows_out = 0
+        total_bytes_in = 0
+        total_parquets = 0
+        table_created = False
+        clips_so_far = 0
+
         if compression_override:
             prev = self.spark.conf.get("spark.sql.parquet.compression.codec")
             self.spark.conf.set("spark.sql.parquet.compression.codec", compression_override)
-        df.writeTo(full).using("iceberg").tableProperty(
-            "format-version", "2"
-        ).createOrReplace()
+
+        for batch_start in range(0, len(zips), batch_size):
+            batch_zips = zips[batch_start:batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            total_batches = (len(zips) + batch_size - 1) // batch_size
+
+            # Extract parquets from this batch of zips to a temp dir
+            tmp_dir = f"/tmp/_bronze_staging_{table}"
+            if os.path.exists(tmp_dir):
+                shutil.rmtree(tmp_dir)
+            os.makedirs(tmp_dir)
+
+            batch_tables: List[pa.Table] = []
+            for zp in batch_zips:
+                total_bytes_in += os.path.getsize(zp)
+                for fname, tbl in _read_parquets_from_zip(zp, suffix_filter):
+                    if self._limit_clips and clips_so_far >= self._limit_clips:
+                        break
+                    if transform_fn:
+                        tbl = transform_fn(tbl)
+                    batch_tables.append(tbl)
+                    clips_so_far += 1
+                if self._limit_clips and clips_so_far >= self._limit_clips:
+                    break
+
+            if not batch_tables:
+                continue
+
+            # Write batch to temp parquet files, then let Spark read them
+            combined = _concat_arrow_tables(batch_tables)
+            n_pq = len(batch_tables)
+            total_parquets += n_pq
+            total_rows_in += combined.num_rows
+            del batch_tables
+
+            pq.write_table(combined, os.path.join(tmp_dir, "part-0.parquet"))
+            del combined
+            import gc; gc.collect()
+
+            df = self.spark.read.parquet(f"file://{tmp_dir}")
+
+            if not table_created:
+                df.writeTo(full).using("iceberg").tableProperty(
+                    "format-version", "2"
+                ).createOrReplace()
+                table_created = True
+            else:
+                df.writeTo(full).append()
+
+            print(f"    batch {batch_num}/{total_batches}: "
+                  f"{n_pq} parquets from {len(batch_zips)} zips", flush=True)
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            if self._limit_clips and clips_so_far >= self._limit_clips:
+                break
+
         if compression_override:
             self.spark.conf.set("spark.sql.parquet.compression.codec", prev)
 
-        rows_out = self.spark.table(full).count()
+        if table_created:
+            total_rows_out = self.spark.table(full).count()
         if self.tracker:
-            self.tracker.end(rows_in=rows_in, rows_out=rows_out,
-                             bytes_in=bytes_in, zips=len(zips),
-                             parquets=n_parquets)
-        print(f"  [DONE] {full}: {rows_out} rows from {len(zips)} zips")
-        return rows_out
+            self.tracker.end(rows_in=total_rows_in, rows_out=total_rows_out,
+                             bytes_in=total_bytes_in, zips=len(zips),
+                             parquets=total_parquets)
+        print(f"  [DONE] {full}: {total_rows_out} rows from {len(zips)} zips")
+        return total_rows_out
 
     # -- per-table ingestors ------------------------------------------------
 
@@ -340,6 +375,8 @@ class NvidiaBronzeIngester:
             # Draco blobs are already compressed; zstd on >2 GB blob
             # columns hits JVM max array size limit. Use snappy.
             compression_override="snappy",
+            # Lidar zips are ~20 GB each; process 5 at a time to limit memory
+            batch_size=5,
         )
 
     def ingest_radar(self) -> Dict[str, int]:

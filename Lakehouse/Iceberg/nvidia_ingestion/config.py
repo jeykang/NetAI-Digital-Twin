@@ -19,7 +19,9 @@ from kaist_ingestion.config import (
 )
 
 
-SNAP_DEFAULT = (
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_NFS_LOCAL = os.path.join(_PROJECT_ROOT, "netai-e2e", "nvidia-physicalai-av-subset")
+SNAP_DEFAULT = _NFS_LOCAL if os.path.isdir(_NFS_LOCAL) else (
     "/mnt/netai-e2e/nvidia-physicalai-av-subset"
 )
 
@@ -58,13 +60,13 @@ class NvidiaConfig:
 
     # Spark driver memory (larger than default for big parquet concat)
     driver_memory: str = field(
-        default_factory=lambda: _env("SPARK_DRIVER_MEMORY", "4g")
+        default_factory=lambda: _env("SPARK_DRIVER_MEMORY", "32g")
     )
 
     # Silver layer mode: "inplace" rewrites parquet files on disk with
     # enrichment columns (clip_id, sensor_name); "view" creates SQL views.
     silver_mode: str = field(
-        default_factory=lambda: _env("NVIDIA_SILVER_MODE", "inplace")
+        default_factory=lambda: _env("NVIDIA_SILVER_MODE", "view")
     )
 
     # Gold layer mode: "materialized" (default) or "view" (zero storage)
@@ -141,6 +143,13 @@ def build_spark_session(config: NvidiaPipelineConfig, app_name: str = "nvidia-in
         .config("spark.sql.iceberg.write.target-file-size-bytes", str(nv.target_file_size_bytes))
         # Use zstd compression for ~30-40% smaller Parquet files vs default snappy
         .config("spark.sql.parquet.compression.codec", "zstd")
+        # Memory overhead for off-heap Arrow/Parquet buffers (10 TB dataset)
+        .config("spark.driver.memoryOverhead", "4g")
+        # Local mode parallelism: use all available cores
+        .config("spark.master", "local[*]")
+        # Adaptive query execution for better join/shuffle performance
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         # Extensions
         .config("spark.sql.extensions",
                 "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")

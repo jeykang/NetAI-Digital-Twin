@@ -744,6 +744,14 @@ the 200-clip set); N=20 passing at 0.818 is reassuring rather than marginal.
   20–30%) rather than the full set. This is a scheduling decision (multi-day GPU
   commitment), not an autonomous run.
 - Wire output parquets to `_load_perception_scores` in edge_case_scorer.py.
+  Contract verified (2026-06-19): the loader globs any `*.parquet` under
+  `<source>/.perception/` and reads `clip_id`+`perception_score`, which the
+  BEVFusion runner writes to that exact path — compatible as-is. **Gotcha**: the
+  runner shares `.perception/` with the retired YOLO scorer
+  (`camera_perception_scorer.py` → `perception_shard_*.parquet`); the loader
+  merges all files and `perception_*` sorts after `bevfusion_*`, so stale YOLO
+  parquets would overwrite BEVFusion per clip. Before the full run, either clear
+  the old YOLO parquets or point the BEVFusion runner at a dedicated subdir.
 - Re-run Gold with the perception signal active and compare cohort vs
   metadata-only baseline (pre-/post-perception Spearman + Jaccard, like the
   v3→v5 perception integration analysis in §10).

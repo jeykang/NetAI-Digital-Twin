@@ -334,8 +334,10 @@ def main():
             print(f"  [{i+1}/{len(clip_ids)}] {elapsed:.0f}s, {rate:.2f} clips/s",
                   flush=True)
 
-        # Periodic checkpoint write so a crash doesn't lose hours of work
-        if (i + 1) % 500 == 0:
+        # Periodic checkpoint write so a crash (with --resume) loses minutes,
+        # not hours. At ~39s/clip, every 50 clips ≈ 30 min between writes; each
+        # write rewrites the whole (small) shard parquet, which is cheap.
+        if (i + 1) % 50 == 0:
             pq.write_table(pa.Table.from_pylist(rows), str(out_path))
 
     pq.write_table(pa.Table.from_pylist(rows), str(out_path))

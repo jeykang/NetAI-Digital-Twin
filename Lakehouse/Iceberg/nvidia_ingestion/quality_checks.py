@@ -15,11 +15,13 @@ Silver views then filter Bronze to clips without FAIL findings.
 """
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import struct
 import time
 from dataclasses import dataclass
+from functools import reduce
 from typing import Dict, List, Optional, Tuple
 
 from pyspark.sql import DataFrame, SparkSession
@@ -56,8 +58,6 @@ class QualityResult:
 
 
 class QualityChecker:
-    MIN_RADAR_SENSORS = 10  # per-clip minimum distinct radar_name
-
     def __init__(self, spark: SparkSession, config: NvidiaPipelineConfig):
         self.spark = spark
         self.config = config
@@ -72,67 +72,158 @@ class QualityChecker:
     # -- Check 1: missing_sensors ---------------------------------------------
 
     def check_missing_sensors(self) -> List[QualityResult]:
+        """Flag clips that are genuinely missing a sensor NVIDIA declares present.
+
+        Source of truth for *expected* sensors is `aux_sensor_presence`
+        (= v26.03 `feature_presence.parquet`): a per-clip boolean matrix with
+        `lidar_top_360fov`, the 19 `radar_*` flags, and `radar_config`. The
+        prior implementation used a hardcoded `MIN_RADAR_SENSORS=10` floor and
+        treated any absent Lidar as FAIL; an audit of the 190 FAILs it produced
+        (bad_clip_lists/missing_sensor_classified.csv, 2026-06-15) found ~all of
+        them non-genuine, in these categories:
+
+          - BY_DESIGN_radar_config (95): clip declares <10 radars (low config
+            expects ~9; some expect 8 or 0). Fixed: compare actual distinct
+            radar_name against the *per-clip expected* count from feature_presence.
+          - BY_DESIGN_no_lidar (23): feature_presence declares lidar absent.
+            Fixed: only check Lidar when `lidar_top_360fov` is true.
+          - ORPHAN_not_in_nvidia_index (26): version-skew clips whose camera
+            files survived on disk but are absent from the v26.03 index (Open
+            Issue #12). Fixed: restrict the universe via inner-join to
+            feature_presence (current-index membership).
+          - OUT_OF_SCOPE_not_downloaded (~9): clips in chunks we never
+            downloaded — they have no Camera rows, so the Camera-presence
+            universe already excludes them.
+          - FALSE_POSITIVE_bronze_bug (32): lidar present & non-empty on disk
+            but absent from the canonical Lidar table (a registration gap, not a
+            clip-quality failure). Fixed: a disk cross-check downgrades these
+            from FAIL to WARN.
+
+        A clip is only FAILed when an expected sensor is missing from Bronze
+        *and* (for lidar) absent from disk.
+        """
         print("[QUALITY] Check: missing sensors per clip")
         results: List[QualityResult] = []
+
+        # Expected sensors per clip, from feature_presence (current-index truth).
+        sp = self.spark.table(self._bronze("aux_sensor_presence"))
+        radar_cols = [c for c in sp.columns
+                      if c.startswith("radar_") and c != "radar_config"]
+        expected_radars = reduce(
+            lambda a, b: a + b,
+            [F.col(c).cast("int") for c in radar_cols],
+        ) if radar_cols else F.lit(0)
+        # The lidar presence flag is `lidar_top_360fov` in v25.10 sensor_presence;
+        # detect it defensively in case v26.03 feature_presence renamed it. If no
+        # lidar flag is found, assume lidar is expected (no by-design exclusion).
+        lidar_col = next(
+            (c for c in ("lidar_top_360fov", "lidar") if c in sp.columns),
+            next((c for c in sp.columns if c.startswith("lidar")), None),
+        )
+        if lidar_col is None:
+            log.warning("aux_sensor_presence has no lidar flag column; "
+                        "treating lidar as expected for all clips")
+        expect_lidar = (F.col(lidar_col).cast("boolean") if lidar_col
+                        else F.lit(True))
+        expected = sp.select(
+            "clip_id",
+            expect_lidar.alias("expect_lidar"),
+            expected_radars.alias("expect_radars"),
+        )
+
+        # Universe = clips that are (a) in the canonical Clip table, (b) locally
+        # present (have Camera rows), and (c) in the current v26.03 index
+        # (inner-join to feature_presence drops version-skew orphans).
         clips = self.spark.table(self._bronze("Clip")).select("clip_id").distinct()
+        cam_clips = self.spark.table(self._bronze("Camera")).select("clip_id").distinct()
+        universe = (
+            clips.join(cam_clips, on="clip_id", how="inner")
+            .join(expected, on="clip_id", how="inner")
+            .cache()
+        )
+        n_universe = universe.count()
+        print(f"  Universe (Clip ∩ Camera ∩ feature_presence): {n_universe:,}")
 
-        # Locally-present universe = clips with rows in Camera (cameras have full coverage)
-        cam_clips = self.spark.table(self._bronze("Camera")).select("clip_id").distinct().cache()
-        local = clips.join(cam_clips, on="clip_id", how="inner").cache()
-        n_local = local.count()
-        print(f"  Locally-present clips (have Camera rows): {n_local:,}")
-
-        # Lidar coverage
+        # -- Lidar: only clips that declare lidar present --------------------
         lid_clips = self.spark.table(self._bronze("Lidar")).select("clip_id").distinct()
-        missing_lidar = local.subtract(lid_clips)
-        n_missing_lidar = missing_lidar.count()
-        if n_missing_lidar:
-            for r in missing_lidar.limit(100).collect():
-                results.append(QualityResult(r.clip_id, "missing_sensor", "FAIL",
-                                             "No Lidar rows", "lidar"))
-            if n_missing_lidar > 100:
-                results.append(QualityResult("*", "missing_sensor_summary", "WARN",
-                                             f"{n_missing_lidar} clips missing Lidar (first 100 only)",
-                                             "lidar"))
-        print(f"  Lidar: {n_missing_lidar:,} clips missing")
+        cand_lidar = [
+            r.clip_id for r in (
+                universe.filter(F.col("expect_lidar"))
+                .select("clip_id")
+                .join(lid_clips, on="clip_id", how="left_anti")
+                .collect()
+            )
+        ]
+        n_fail_lidar = n_warn_lidar = 0
+        for clip_id in cand_lidar:
+            if self._lidar_on_disk(clip_id):
+                # Data exists on disk but isn't in canonical Lidar: registration
+                # gap, not a clip-quality failure → WARN (doesn't exclude clip).
+                results.append(QualityResult(
+                    clip_id, "missing_sensor", "WARN",
+                    "Lidar on disk but absent from Bronze (registration gap)", "lidar"))
+                n_warn_lidar += 1
+            else:
+                results.append(QualityResult(
+                    clip_id, "missing_sensor", "FAIL", "No Lidar rows", "lidar"))
+                n_fail_lidar += 1
+        print(f"  Lidar: {n_fail_lidar:,} FAIL, {n_warn_lidar:,} WARN "
+              f"(of {len(cand_lidar):,} declared-present but absent from Bronze)")
 
-        # EgoMotion coverage
+        # -- EgoMotion: online egomotion is expected for every clip ---------
         ego_clips = self.spark.table(self._bronze("EgoMotion")).select("clip_id").distinct()
-        missing_ego = local.subtract(ego_clips)
+        missing_ego = universe.select("clip_id").join(ego_clips, on="clip_id", how="left_anti")
         n_missing_ego = missing_ego.count()
-        if n_missing_ego:
-            for r in missing_ego.limit(100).collect():
-                results.append(QualityResult(r.clip_id, "missing_sensor", "FAIL",
-                                             "No EgoMotion rows", "egomotion"))
-            if n_missing_ego > 100:
-                results.append(QualityResult("*", "missing_sensor_summary", "WARN",
-                                             f"{n_missing_ego} clips missing EgoMotion (first 100 only)",
-                                             "egomotion"))
+        for r in missing_ego.limit(100).collect():
+            results.append(QualityResult(r.clip_id, "missing_sensor", "FAIL",
+                                         "No EgoMotion rows", "egomotion"))
+        if n_missing_ego > 100:
+            results.append(QualityResult("*", "missing_sensor_summary", "WARN",
+                                         f"{n_missing_ego} clips missing EgoMotion (first 100 only)",
+                                         "egomotion"))
         print(f"  EgoMotion: {n_missing_ego:,} clips missing")
 
-        # Radar coverage: per-clip distinct radar_name >= MIN
+        # -- Radar: actual distinct radar_name < per-clip expected ----------
         radar_per_clip = (
             self.spark.table(self._bronze("Radar"))
             .groupBy("clip_id")
             .agg(F.countDistinct("radar_name").alias("n_sensors"))
         )
         low_radar = (
-            local.join(radar_per_clip, on="clip_id", how="left")
+            universe.join(radar_per_clip, on="clip_id", how="left")
             .withColumn("n_sensors", F.coalesce(F.col("n_sensors"), F.lit(0)))
-            .filter(F.col("n_sensors") < self.MIN_RADAR_SENSORS)
+            .filter((F.col("expect_radars") > 0)
+                    & (F.col("n_sensors") < F.col("expect_radars")))
         )
         n_low_radar = low_radar.count()
-        if n_low_radar:
-            for r in low_radar.limit(100).collect():
-                results.append(QualityResult(
-                    r.clip_id, "missing_sensor", "FAIL",
-                    f"Only {r.n_sensors} radar sensors (< {self.MIN_RADAR_SENSORS})", "radar"))
-            if n_low_radar > 100:
-                results.append(QualityResult("*", "missing_sensor_summary", "WARN",
-                                             f"{n_low_radar} clips below MIN_RADAR_SENSORS (first 100 only)",
-                                             "radar"))
-        print(f"  Radar: {n_low_radar:,} clips below {self.MIN_RADAR_SENSORS} sensors")
+        for r in low_radar.select("clip_id", "n_sensors", "expect_radars").limit(100).collect():
+            results.append(QualityResult(
+                r.clip_id, "missing_sensor", "FAIL",
+                f"Only {r.n_sensors} radar sensors (expected {r.expect_radars})", "radar"))
+        if n_low_radar > 100:
+            results.append(QualityResult("*", "missing_sensor_summary", "WARN",
+                                         f"{n_low_radar} clips below expected radar count (first 100 only)",
+                                         "radar"))
+        print(f"  Radar: {n_low_radar:,} clips below per-clip expected count")
+        universe.unpersist()
         return results
+
+    def _lidar_on_disk(self, clip_id: str) -> bool:
+        """True if a non-empty lidar parquet for this clip exists on NFS.
+
+        Mirrors the glob the Gold scorer uses (edge_case_scorer._score_per_clip).
+        """
+        lidar_dir = os.path.join(self.source_path, "lidar", "lidar_top_360fov")
+        if not os.path.isdir(lidar_dir):
+            return False
+        for p in glob.glob(os.path.join(lidar_dir, "**", f"{clip_id}*.parquet"),
+                           recursive=True):
+            try:
+                if os.path.getsize(p) > 0:
+                    return True
+            except OSError:
+                continue
+        return False
 
     # -- Check 2: timestamps ---------------------------------------------------
 
@@ -263,15 +354,17 @@ class QualityChecker:
         results: List[QualityResult] = []
         for name, fn in all_checks.items():
             t0 = time.perf_counter()
+            before = len(results)
             try:
                 results.extend(fn())
             except Exception as e:
                 log.exception("Check %s crashed", name)
                 results.append(QualityResult("*", name, "FAIL",
                                              f"check crashed: {e}"))
-            print(f"  → {name}: {len([r for r in results if r.check_name.startswith(name)])} "
-                  f"findings ({len([r for r in results if r.status == 'FAIL'])} FAIL, "
-                  f"{len([r for r in results if r.status == 'WARN'])} WARN) "
+            produced = results[before:]
+            print(f"  → {name}: {len(produced)} findings "
+                  f"({sum(1 for r in produced if r.status == 'FAIL')} FAIL, "
+                  f"{sum(1 for r in produced if r.status == 'WARN')} WARN) "
                   f"in {time.perf_counter() - t0:.1f}s")
 
         rows = [(r.clip_id, r.check_name, r.status, r.detail, r.sensor, self._ts)

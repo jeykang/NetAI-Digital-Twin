@@ -945,7 +945,9 @@ class EdgeCaseScorer:
             source_ns = self.ns_b
 
         for tbl in source_tables:
-            if tbl in ("quality_report", "clip_scores"):
+            # Skip report tables and Silver helper views (e.g. `_failed_clips`),
+            # which are internal and shouldn't get a Gold mirror.
+            if tbl in ("quality_report", "clip_scores") or tbl.startswith("_"):
                 continue
 
             try:

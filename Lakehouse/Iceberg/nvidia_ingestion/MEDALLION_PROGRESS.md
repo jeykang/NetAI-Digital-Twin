@@ -713,11 +713,40 @@ Inference + production-path refactor: the validated input-assembly + per-frame i
 
 **Batch scorer: VERIFIED** (`runner.py` on a 2-clip list, baked image, no recompile): clip with all 6 cams → real scores (4 frames, mean_n_detections 3.0, class_diversity 0.96, perception_score 0.568); clip with a corrupt rear_right mp4 → correctly routed to the neutral 0.5 fallback. Output parquet schema matches `_load_perception_scores`'s expectations.
 
+**Score-threshold calibration (2026-06-19)**: a 12-clip probe at N=10 showed the
+earlier "max conf ~0.09" was an unrepresentative single frame — the real
+distribution has mean_max_conf ≈ 0.59 (up to 0.80). `--score-thr 0.05` yields a
+healthy perception_score spread (range [0.446, 0.705], stdev 0.072). Throughput
+≈ 22 s/clip at N=10 (I/O-bound: 216 MB lidar parquet decode + per-frame 6-cam
+mp4 seeks; lidar read is per-clip, so N scales only the per-frame cost).
+
+**Sampling-adequacy validation: DONE (2026-06-19) → use N=20.** Ran the harness
+(`bevfusion/validation/`) on 100 fully-covered clips, sharded across RTX 6000 +
+A10, at N ∈ {10,20,40}, score_thr=0.05:
+
+| Comparison | Spearman ρ | Jaccard top-10% |
+|---|---|---|
+| N=10 vs N=40 | 0.912 | **0.667** |
+| N=20 vs N=40 | 0.937 | **0.818** |
+| N=10 vs N=20 | 0.887 | 0.538 |
+
+Verdict: N=10 ranking is stable (ρ=0.912 ≥ 0.85) but top-10% *membership* is not
+(Jaccard 0.667 < 0.80); since Gold selection is a top-10% cutoff, membership
+stability governs. **N=20 clears both criteria** (ρ=0.937, Jaccard=0.818) → adopt
+N=20. Caveat: on 100 clips top-10% = 10 clips, so Jaccard is coarse (designed for
+the 200-clip set); N=20 passing at 0.818 is reassuring rather than marginal.
+
 **Next steps when work resumes**:
-- Run `validate_sampling.py` (200-clip × N=10/20/40 sampling-adequacy) and tune `--score-thr` (default 0.1; smoke-test max conf ~0.09 under placeholder calibration, so the threshold genuinely needs calibration against the score distribution).
-- Run the full Gold-subset scoring pass (sharded across the RTX 6000 + A10 via the `bevfusion-runner` compose service).
-- Wire output parquets to `_load_perception_scores` in edge_case_scorer.py
-- Re-run Gold with the perception signal active and compare cohort vs metadata-only baseline (pre-/post-perception Spearman + Jaccard, like the v3→v5 perception integration analysis in §10).
+- Full Gold-subset scoring pass at **N=20, score_thr=0.05**, sharded across both
+  GPUs via the `bevfusion-runner` compose service. **Cost reality**: ~39 s/clip
+  at N=20 → ~7–8 days for all 33,719 clips on 2 GPUs. Strongly prefer the
+  **cascade**: run BEVFusion only on a metadata-preselected cohort (e.g. top
+  20–30%) rather than the full set. This is a scheduling decision (multi-day GPU
+  commitment), not an autonomous run.
+- Wire output parquets to `_load_perception_scores` in edge_case_scorer.py.
+- Re-run Gold with the perception signal active and compare cohort vs
+  metadata-only baseline (pre-/post-perception Spearman + Jaccard, like the
+  v3→v5 perception integration analysis in §10).
 - [x] Clean up `_failed_clips` Silver helper view leakage into Gold's view-iteration loop (done 2026-06-19: `build_gold_subset` now skips any source name starting with `_` alongside `quality_report`/`clip_scores`).
 - [x] Cosmetic: fix `→ <name>: N findings` log line in `quality_checks.py` (done 2026-06-19: now counts the findings each check produced via a `results[before:]` slice instead of the broken `startswith(name)` match).
 - [ ] Camera filename rebuild for canonical Camera (the `filename` column points at the v1 camera mp4 paths from before the redownload — current re-download didn't touch cameras, so they should still match). Verify via validation script post-recovery.

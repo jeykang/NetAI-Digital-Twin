@@ -736,13 +736,41 @@ stability governs. **N=20 clears both criteria** (ρ=0.937, Jaccard=0.818) → a
 N=20. Caveat: on 100 clips top-10% = 10 clips, so Jaccard is coarse (designed for
 the 200-clip set); N=20 passing at 0.818 is reassuring rather than marginal.
 
+**Cascade run: LAUNCHED (2026-06-19).** Running BEVFusion only on a
+metadata-preselected cohort rather than all 33K clips.
+
+*Catalog recovery first*: bringing the stack up revealed polaris had lost its
+catalog — `apache/polaris:latest` uses an in-memory metastore with no
+persistence volume, so stopping it 2 weeks earlier dropped all table
+registrations (and the Silver/Gold *views*, which are catalog-only). The 19 GB
+of table data + Iceberg metadata survived in `minio_data/`. Recovery was bounded
+because the metadata scorer needs only Bronze `Clip` + the 3 `aux_*` tables (it
+falls back from the missing Silver view to Bronze Clip): re-registered
+`clip_index` + `data_collection` (bare parquet), the 3 aux tables, and rebuilt
+canonical `Clip` — no full 3.9 h Bronze rebuild. `aux_egomotion` re-registered at
+98.7 M rows (was 101.7 M pre-PURGE; the gap is the upstream-pruned chunks).
+**Action item: make polaris persistent** (JDBC/Postgres metastore or at least a
+documented re-register step) so this can't recur.
+
+*Preselection*: metadata Gold scoring re-run → `clip_scores`, 306,152 clips,
+range [0.187, 0.836], mean 0.487 (matches prior canonical runs). Cohort =
+**top 30 % by score ∩ on-disk fully-covered clips** (lidar + the 5 unique
+CAM_ORDER cameras; `rear_right` is the binding constraint at 11,739 valid →
+**11,128 fully-covered**). Top 30 % = **3,338 clips** (score ≥ 0.4997), pinned at
+`bevfusion/cohort/cascade_cohort.csv`.
+
+*Run*: `bevfusion/run_cascade.sh` launches one detached container per GPU
+(shard 0 = 1,642 clips on RTX 6000, shard 1 = 1,696 on A10) at N=20,
+score_thr=0.05, writing to `<NFS>/.perception_bevfusion/` (kept separate from the
+retired YOLO scorer's `.perception/`). Runner is now **resumable** (`--resume`,
+default on: reloads the shard parquet and skips scored clips). ETA ~18 h.
+
 **Next steps when work resumes**:
-- Full Gold-subset scoring pass at **N=20, score_thr=0.05**, sharded across both
-  GPUs via the `bevfusion-runner` compose service. **Cost reality**: ~39 s/clip
-  at N=20 → ~7–8 days for all 33,719 clips on 2 GPUs. Strongly prefer the
-  **cascade**: run BEVFusion only on a metadata-preselected cohort (e.g. top
-  20–30%) rather than the full set. This is a scheduling decision (multi-day GPU
-  commitment), not an autonomous run.
+- After the cascade completes: wire `.perception_bevfusion/` into
+  `_load_perception_scores` (point it at that dir, or move the parquets), re-run
+  Gold with the perception signal, compare cohort vs metadata-only baseline
+  (Spearman + Jaccard, as in §10). Note the catalog must be up for the Gold
+  re-run (and Silver/Gold views recreated, since they were lost).
 - Wire output parquets to `_load_perception_scores` in edge_case_scorer.py.
   Contract verified (2026-06-19): the loader globs any `*.parquet` under
   `<source>/.perception/` and reads `clip_id`+`perception_score`, which the

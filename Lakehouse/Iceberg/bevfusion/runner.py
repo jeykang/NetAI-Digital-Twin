@@ -78,6 +78,9 @@ def parse_args():
                    help="Min box score counted as a detection. The pretrained "
                         "nuScenes checkpoint has domain shift to PhysicalAI so "
                         "absolute scores are low; tune via validate_sampling.py")
+    p.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                   help="Reload existing shard parquet and skip already-scored "
+                        "clips (default on; use --no-resume to recompute).")
     return p.parse_args()
 
 
@@ -254,9 +257,25 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"bevfusion_shard_{args.shard_id:02d}_of_{args.n_shards:02d}.parquet"
 
+    # Resume: reload an existing shard parquet and skip clips already scored, so
+    # a restart of a long run continues instead of recomputing from zero.
     rows = []
+    done: set[str] = set()
+    if args.resume and out_path.exists():
+        try:
+            prev = pq.read_table(str(out_path)).to_pylist()
+            rows = prev
+            done = {r["clip_id"] for r in prev}
+            print(f"[bevfusion-runner] resume: {len(done):,} clips already scored "
+                  f"in {out_path.name}", flush=True)
+        except Exception as e:
+            print(f"[bevfusion-runner] resume read failed ({e}); starting fresh",
+                  flush=True)
+
     t0 = time.time()
     for i, clip_id in enumerate(clip_ids):
+        if clip_id in done:
+            continue
         cams, lidar_path = find_files_for_clip(args.nfs_root, clip_id)
         # Need at least front_wide camera + lidar
         if not cams.get("camera_front_wide_120fov") or not lidar_path:

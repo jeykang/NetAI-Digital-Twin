@@ -723,3 +723,107 @@ Inference + production-path refactor: the validated input-assembly + per-frame i
 - [ ] Camera filename rebuild for canonical Camera (the `filename` column points at the v1 camera mp4 paths from before the redownload — current re-download didn't touch cameras, so they should still match). Verify via validation script post-recovery.
 - [ ] Add v26.03 `obstacle.offline` download to populate DynamicObject (long-standing work item; would be ~50-100 GB).
 - [ ] Future: native struct encoding for EgoMotion translation/rotation (currently JSON, ~78 bytes/row → ~30 bytes/row).
+
+## 13. Difficulty-metric roadmap: driving-based difficulty (planned, NOT yet implemented)
+
+**End goal (directive, 2026-06-19)**: the difficulty metric should ultimately
+judge scenes by *how hard they are to actually drive* — running an autonomous
+driving policy over the scene and measuring its struggle — rather than the
+current proxy of perception self-consistency (BEVFusion detection jitter, §10/§12).
+Closed-loop is out of scope: it needs a reactive simulator that re-renders
+sensors for off-trajectory ego poses (NuRec-style neural reconstruction — in
+this dataset's DNA, but hours/clip → infeasible at 33K scale). So the target is
+**open-loop / semi-open-loop**.
+
+This is a *later* work item. It is documented here so the design is settled
+before implementation, and — per directive — **it must be built as a fully
+detachable module**: if it never gets off the ground, deleting it must leave the
+rest of the pipeline untouched.
+
+### Modularity contract (the hard requirement)
+
+Mirror the existing BEVFusion perception scorer's loose coupling exactly:
+
+- **Self-contained directory** `planning/` (sibling to `bevfusion/`): own
+  Dockerfile, own pinned deps, own `planning-runner` compose service with
+  `profiles: [manual]` so it never auto-starts. Nothing in the core Spark
+  pipeline (`canonical_bronze.py`, `quality_checks.py`, `pipeline.py`) imports it.
+- **File-drop interface only.** The runner writes per-clip parquet to
+  `<NFS>/.planning/planning_shard_NN.parquet` with schema `{clip_id,
+  planning_score ∈ [0,1], + detail columns}` — exactly analogous to the
+  perception scorer's `<NFS>/.perception/`. No new canonical Bronze columns, no
+  schema migration, no catalog dependency.
+- **One optional hook in Gold.** `edge_case_scorer` gains a
+  `_load_planning_scores()` mirroring `_load_perception_scores()`, and
+  `compute_scene_score` treats a missing `planning_score` as a dropped
+  dimension and renormalizes the remaining weights (the renormalization
+  machinery from §10 already does this). If `.planning/` is absent, Gold scores
+  exactly as it does today.
+- **Reuse, don't extend.** Inputs come from existing aux tables (`aux_egomotion`
+  for GT ego trajectory + ego state, calibration) and the boxes the BEVFusion
+  runner already emits — no new upstream data contracts.
+- **Removal cost = three deletions**: the `planning/` dir, the compose service
+  block, and the `_load_planning_scores` hook + its weight entry in
+  `_SCENE_WEIGHTS`. Nothing else references it.
+
+### Method decision: open-loop planner + NAVSIM-style semi-open-loop scoring
+
+**Caveat that drives the whole design**: naive open-loop L2 (planned vs GT
+trajectory) is known to be gameable by ego-kinematic extrapolation
+("ego-status-is-all-you-need" / AD-MLP / BEV-Planner). Our cheap `ego_dynamics`
+sub-score already captures that, so an L2-based planner difficulty risks
+recomputing it for days of GPU. The metric must reward signals that *require
+scene understanding*.
+
+**NAVSIM**: evaluated and rejected as a *direct* dependency. NAVSIM's PDM Score
+(bicycle-model unroll of the planned trajectory + collision / drivable-area /
+TTC / progress / comfort scoring, non-reactive log-replayed agents, no sensor
+re-render) is exactly the right *methodology* — it fixes the L2-gaming problem.
+But NAVSIM-the-software is map/annotation-centric and assumes nuPlan/OpenScene
+format: it needs an HD map (drivable area / lanes — PhysicalAI has **none**),
+tracked agents with futures, and traffic-light status. Running it would require
+converting PhysicalAI into pseudo-nuPlan with a *synthesized* map, and the
+map-dependent metrics (the ones that make PDMS valuable) would score against
+fabricated geometry. **Decision: do NOT run the NAVSIM devkit; reimplement its
+map-free PDMS subset** (no-collision / TTC / ego-progress / comfort), which
+needs only {planned trajectory, ego kinematics, agent boxes — already produced
+by the BEVFusion runner}.
+
+**Difficulty = inverse of planner success**, not error-vs-GT: a scene is hard
+when a competent planner gets low PDMS (collides / can't progress safely). Best
+signal is the **PDMS gap between a trivial constant-velocity/yaw-rate planner
+and a learned planner** (large gap or uniformly low PDMS = genuinely hard); the
+trivial planner fails the collision/progress checks precisely where the scene
+is non-trivial, which is what breaks the ego-kinematics confound.
+
+### Implementation ladder (each rung independently shippable)
+
+1. **Open-loop trajectory + uncertainty** — run a tractable pretrained E2E
+   planner (VAD/VADv2 or SparseDrive over full UniAD, chosen for inference
+   cost), with real PhysicalAI calibration + ego history + GT-derived high-level
+   command. Difficulty leads with *uncertainty/ensemble disagreement*, with L2
+   residualized against `ego_dynamics`. Needs no map/boxes.
+2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
+   progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
+   almost for free once trajectory+boxes exist.
+3. **+ map-dependent metrics** — only if a pseudo-map is estimated (online
+   map-prediction model or lidar ground-seg). Noisy; likely skip for a relative
+   difficulty signal.
+
+### Prerequisites / data gaps
+
+- **No HD map** (canonical `HDMap` empty) — blocks rung 3; rungs 1–2 don't need it.
+- **`obstacle.offline`** (~50–100 GB, not downloaded) — gives agent boxes/tracks
+  for collision metrics; the BEVFusion runner's boxes are the no-download
+  fallback.
+- **Compute**: planners are heavier than BEVFusion and the full BEVFusion Gold
+  pass is already multi-day, so run planning **only on perception-selected
+  survivors** (cascade: metadata → perception → planning on the top cohort).
+
+### Cheap de-risking experiment (do before any heavy build)
+
+On the same validation clips, compute open-loop difficulty for a *trivial*
+constant-velocity/yaw-rate planner and correlate (Spearman) against the existing
+`ego_dynamics` sub-score. If ρ ≳ 0.9, L2-style signal is mostly ego-kinematics →
+confirms leading with uncertainty/collision (rung 2) over error-vs-GT. A few
+lines, no GPU.

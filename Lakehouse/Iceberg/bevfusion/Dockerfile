@@ -69,16 +69,24 @@ RUN pip install --no-cache-dir --force-reinstall "numpy==1.26.4"
 # picked up by torch.utils.cpp_extension when invoked through setup.py.
 # Also export CPATH so g++ finds cuda_runtime_api.h during the .cpp pass
 # (nvcc's automatic include resolution doesn't propagate to gcc).
+#
+# FORCE_CUDA=1 is REQUIRED: projects/BEVFusion/setup.py gates CUDAExtension on
+# `torch.cuda.is_available() or FORCE_CUDA==1`. There is no GPU during `docker
+# build`, so without FORCE_CUDA the ops compile as CPU-only CppExtensions and
+# voxelization raises "Not compiled with GPU support" at inference time.
 RUN export CUDA_HOME=/usr/local/cuda \
     && export PATH=$CUDA_HOME/bin:$PATH \
     && export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH \
     && export CPATH=$CUDA_HOME/include:$CPATH \
+    && export FORCE_CUDA=1 \
     && cd /workspace/mmdetection3d \
     && python projects/BEVFusion/setup.py develop
 
 ENV PYTHONPATH=/workspace/mmdetection3d:/workspace/mmdetection3d/projects/BEVFusion
 
+COPY bevfusion_infer.py /workspace/bevfusion_infer.py
 COPY runner.py /workspace/runner.py
+COPY test_one_clip.py /workspace/test_one_clip.py
 COPY validate_sampling.py /workspace/validate_sampling.py
 
 # Default invocation: print help so a misconfigured run fails loud

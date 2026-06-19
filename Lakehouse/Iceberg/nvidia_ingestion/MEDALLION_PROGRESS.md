@@ -400,6 +400,14 @@ Defaults: `--bronze-mode nfs`, `--backend metadata`.
                         r"/([^/]+)\.<sensor>\.parquet$", 1))
    ```
 
+12. **Dataset version skew: camera data (v25.10) vs metadata (v26.03) — ~1,185 "orphan" clips** (2026-06-16): The camera MP4s on disk are from the **original ~v25.10 extraction (mtime 2026-04-20)**, but `clip_index.parquet` / `feature_presence.parquet` were re-downloaded fresh after the PURGE and are **v26.03 (mtime 2026-04-29)**. NVIDIA prunes clips between releases (README license: *"from time to time update the Dataset… delete any prior versions upon NVIDIA's written request"* — PII/consent/quality/legal). Net effect on our 340 selected chunks: `selected_chunks.csv` declared **33,767** clips, but current `clip_index` lists only **32,582** within those chunks → **1,185 clips removed upstream**. Their camera files survived the PURGE (registered via `.bronze_staging/` symlinks, see §11) so their clip_ids persist on disk while absent from all current metadata (`clip_index`, `data_collection`, `feature_presence`, `transfer_manifest`).
+
+    Evidence: per-chunk, on-disk camera clips are a strict **superset** of metadata (`meta_minus_disk = 0`, `disk_minus_meta = 8–18` per chunk — never the reverse). These are *not* corruption or a foreign dataset.
+
+    Impact: `check_missing_sensors` derives its clip universe from camera Bronze (old clip_ids), so these orphans surface as bogus "missing sensor" FAILs (26 of them landed in the 190-clip Silver exclusion of the 2026-05-04 run; all confirmed non-genuine). Any clip list exchanged with external teams (e.g. KAIST curation) **must be pinned to a dataset version**, since clip membership differs across releases. Cleaner fix: filter Bronze/Silver to clips present in current `clip_index` (drop the version-orphaned tail).
+
+    **Cleaner fix implemented (2026-06-19, code only — not yet re-run; stack is down).** Rewrote `check_missing_sensors` to be driven by `aux_sensor_presence` (= v26.03 `feature_presence.parquet`) instead of hardcoded floors. Changes: (a) universe is now `Clip ∩ Camera ∩ feature_presence` via inner-join, which drops the 26 version-orphans (absent from feature_presence) and the ~9 out-of-scope/not-downloaded clips (absent from Camera); (b) lidar is only checked when the per-clip `lidar_top_360fov` flag is true, eliminating the 23 `BY_DESIGN_no_lidar` FAILs; (c) radar FAILs only when actual distinct `radar_name` < the *per-clip expected* radar count (sum of the 19 `radar_*` booleans), eliminating the 95 `BY_DESIGN_radar_config` FAILs (low config legitimately has ~9); (d) lidar candidates that are missing from Bronze but present non-empty on disk are downgraded FAIL→WARN (registration gap, not a clip-quality failure), eliminating the 32 `FALSE_POSITIVE_bronze_bug` FAILs. Net: of the 190 prior FAILs, ~185 become non-FAIL by construction, mapped 1:1 to `bad_clip_lists/missing_sensor_classified.csv` categories. Expected Silver retention back to ~100% with only genuinely-broken clips excluded. **Verification pending an env bring-up** (NFS mount + polaris/minio/spark-iceberg containers, all currently down).
+
 ---
 
 ## 6. Open Design Decisions
@@ -675,7 +683,6 @@ Notable points:
 ## 12. BEVFusion Perception Scoring Setup (2026-05-04 → 2026-05-05, in progress)
 
 **Goal**: replace the placeholder `BEVFusionBackend` in `edge_case_scorer.py` with a real multimodal (camera + lidar) perception pass on the 33,719-clip Gold subset.
-
 **Container**: `bevfusion/Dockerfile` builds `netai/bevfusion-runner:latest` (30.7 GB). Stack: pytorch 2.1.2 + cuda 12.1, openmim → mmcv 2.1.0 / mmdet 3.2.0 / mmsegmentation 1.2.2 / mmdet3d 1.4.0, mmdetection3d source clone for `projects/BEVFusion`. Custom CUDA ops (bev_pool_ext, voxel) compiled for sm_75+sm_86 via inline CUDA_HOME export.
 
 **Compose**: `bevfusion-runner` service in `docker-compose.override.yml`, `runtime: nvidia`, all GPUs, NFS read-only, profile=manual so it doesn't auto-start.
@@ -690,29 +697,29 @@ Notable points:
 3. BEVFusion CUDA ops setup.py has paths relative to mmdet3d root, not its own dir. Fixed: cd to mmdet3d root before `python projects/BEVFusion/setup.py develop`.
 4. `cuda_runtime_api.h: No such file or directory` — `CUDA_HOME` not set in build env. Fixed: inline `export CUDA_HOME=/usr/local/cuda` before setup.py.
 5. NFS root-squash blocks container's root user. Fixed: run with `--user 1000:1007 -e HOME=/tmp`.
-6. mmdet3d 1.4.0 `data_preprocessor.simple_process` checks for `'img'` (singular) but uses `'imgs'` (plural) — bug. Fixed: pass both keys.
-7. `_get_pad_shape` requires 4D NCHW for `img`; pass `imgs.squeeze(0)` (treats cams as batch).
+6. mmdet3d 1.4.0 `data_preprocessor.simple_process` checks for `'img'` (singular) but uses `'imgs'` (plural) — bug. Fixed: pass both keys. **Superseded by the correct fix in #8 below** (the right contract is `inputs['img']` only, as a list).
+7. `_get_pad_shape` requires 4D NCHW for `img`; pass `imgs.squeeze(0)` (treats cams as batch). **Also superseded by #8.**
 
-**Open blocker** (current state, 2026-05-05): `extract_img_feat` expects 5D (B,N,C,H,W) input but receives 4D after `data_preprocessor.collate_data`. The mmdet3d data-flow contract needs more careful study to determine whether BEVFusion's image branch wants the 5D tensor preserved through the preprocessor or rebuilt downstream. Likely fix: subclass the data_preprocessor or pass `imgs` as a list of per-cam 4D tensors that the model unsqueezes itself.
+**Blocker RESOLVED + full pipeline operational (2026-06-19).** Traced the mmdet3d data-flow contract by reading the in-image source and fixed three stacked issues; one-clip inference now produces detections and the batch scorer (`runner.py`) writes real per-clip scores. The four fixes:
 
-**End-to-end smoke test status** (`bevfusion/test_one_clip.py`):
-- ✅ Image build + model load (40.8M params, swin_tiny image-backbone auto-fetched)
-- ✅ NFS access via uid 1000
-- ✅ Lidar Draco decode (331,159 points / 5 cols incl synthesized intensity & time)
-- ✅ 6-camera mp4 frame extraction at 800×448
-- ✅ data_preprocessor passes
-- ✅ extract_feat reaches BEVFusion's image-feature branch
-- ⏳ Failing at `extract_img_feat`'s `B, N, C, H, W = x.size()` (5D unpack from 4D tensor)
+8. **5D vs 4D image contract** (the original blocker). `Det3DDataPreprocessor.collate_data` reads `inputs['img']` and *overwrites* `inputs['imgs']`; the output shape depends on how `img` is passed: a **list of per-sample 4D `(N_cams,C,H,W)` tensors** routes through `multiview_img_stack_batch` → **5D `(B,N,C,H,W)`** (what `extract_img_feat` unpacks), whereas a single 4D tensor stays 4D. Fix: pass `inputs['img'] = [tensor(N,C,H,W)]` and drop the `imgs`/`squeeze` workarounds from #6/#7.
+9. **Image size mismatch**. Frames were resized to 800×448 → LSS feature height 56 ≠ the config's expected 32, crashing `get_cam_feats`'s `torch.cat([d, x])`. Fix: resize to the config `view_transform image_size=[256,704]` (feature `[32,88]`).
+10. **Voxel op compiled CPU-only** → `RuntimeError: Not compiled with GPU support` in `hard_voxelize`. Root cause: `projects/BEVFusion/setup.py` gates `CUDAExtension` on `torch.cuda.is_available() or FORCE_CUDA==1`, and there's no GPU during `docker build`. Fix: `export FORCE_CUDA=1` before `setup.py develop` in the Dockerfile (baked into the rebuilt image 2026-06-19; ops compile in ~77s).
+11. **Missing `box_type_3d` metainfo**. The detection head's `predict_by_feat` wraps decoded boxes via `metas[0]['box_type_3d'](...)`; a hand-built data sample must supply `box_type_3d=LiDARInstance3DBoxes` and `box_mode_3d=Box3DMode.LIDAR`.
+
+Inference + production-path refactor: the validated input-assembly + per-frame inference live in **`bevfusion/bevfusion_infer.py`** (`build_data`, `run_frame`, `CAM_ORDER`, `NUSC_CLASSES`); both `test_one_clip.py` (smoke test) and `runner.py` (batch scorer) import it, so the exact contract validated is the one that runs.
+
+**End-to-end smoke test: PASSING** (`bevfusion/test_one_clip.py`, clip `bd539f72-…`, frame 100): model load → Draco decode (188,135 pts) → 6× mp4 at 256×704 → inference → **200 detections, max_conf 0.092, classes spanning car/truck/trailer/pedestrian/barrier/traffic_cone**. Low absolute scores are expected (placeholder nuScenes calibration + domain shift); only the relative signal is used.
+
+**Batch scorer: VERIFIED** (`runner.py` on a 2-clip list, baked image, no recompile): clip with all 6 cams → real scores (4 frames, mean_n_detections 3.0, class_diversity 0.96, perception_score 0.568); clip with a corrupt rear_right mp4 → correctly routed to the neutral 0.5 fallback. Output parquet schema matches `_load_perception_scores`'s expectations.
 
 **Next steps when work resumes**:
-- Resolve the 5D vs 4D shape contract (possibly by inspecting the working multi_modality_demo path with a real nuScenes ann file and seeing how it shapes the data)
-- Once one-clip inference produces detections, integrate into runner.py (replace the existing TODO stub)
-- Run the 200-clip × N=10/20/40 sampling-adequacy validation
-- Run the full 33,719-clip Gold scoring pass
+- Run `validate_sampling.py` (200-clip × N=10/20/40 sampling-adequacy) and tune `--score-thr` (default 0.1; smoke-test max conf ~0.09 under placeholder calibration, so the threshold genuinely needs calibration against the score distribution).
+- Run the full Gold-subset scoring pass (sharded across the RTX 6000 + A10 via the `bevfusion-runner` compose service).
 - Wire output parquets to `_load_perception_scores` in edge_case_scorer.py
 - Re-run Gold with the perception signal active and compare cohort vs metadata-only baseline (pre-/post-perception Spearman + Jaccard, like the v3→v5 perception integration analysis in §10).
-- [ ] Clean up `_failed_clips` Silver helper view leakage into Gold's view-iteration loop (creates a spurious `iceberg.nvidia_gold._failed_clips` view).
-- [ ] Cosmetic: fix `→ <name>: N findings` log line in `quality_checks.py` (uses `startswith(name)` but findings use singular `missing_sensor` while name is plural `missing_sensors` → always logs 0).
+- [x] Clean up `_failed_clips` Silver helper view leakage into Gold's view-iteration loop (done 2026-06-19: `build_gold_subset` now skips any source name starting with `_` alongside `quality_report`/`clip_scores`).
+- [x] Cosmetic: fix `→ <name>: N findings` log line in `quality_checks.py` (done 2026-06-19: now counts the findings each check produced via a `results[before:]` slice instead of the broken `startswith(name)` match).
 - [ ] Camera filename rebuild for canonical Camera (the `filename` column points at the v1 camera mp4 paths from before the redownload — current re-download didn't touch cameras, so they should still match). Verify via validation script post-recovery.
 - [ ] Add v26.03 `obstacle.offline` download to populate DynamicObject (long-standing work item; would be ~50-100 GB).
 - [ ] Future: native struct encoding for EgoMotion translation/rotation (currently JSON, ~78 bytes/row → ~30 bytes/row).

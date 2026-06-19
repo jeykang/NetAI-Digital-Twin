@@ -18,25 +18,16 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import torch
 
 import projects.BEVFusion.bevfusion  # registers BEVFusion
 from mmdet3d.apis import init_model
-from mmdet3d.structures import Det3DDataSample, LiDARInstance3DBoxes
-from mmengine.structures import InstanceData
+
+# Production inference path — exercised here so the smoke test validates the
+# exact contract runner.py uses.
+from bevfusion_infer import CAM_ORDER, run_frame
 
 CFG = "/workspace/mmdetection3d/projects/BEVFusion/configs/bevfusion_lidar-cam_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py"
 CKPT = "/workspace/checkpoints/bevfusion_lidar-cam_spconv2.pth"
-
-# Camera ordering BEVFusion config expects (nuScenes layout)
-CAM_ORDER = [
-    "camera_front_wide_120fov",   # CAM_FRONT
-    "camera_cross_right_120fov",  # CAM_FRONT_RIGHT
-    "camera_cross_left_120fov",   # CAM_FRONT_LEFT
-    "camera_rear_left_70fov",     # CAM_BACK (substituting; nuScenes has rear-center)
-    "camera_rear_left_70fov",     # CAM_BACK_LEFT
-    "camera_rear_right_70fov",    # CAM_BACK_RIGHT
-]
 
 
 def load_lidar_points(parquet_path: str, frame_idx: int) -> np.ndarray:
@@ -61,8 +52,14 @@ def load_lidar_points(parquet_path: str, frame_idx: int) -> np.ndarray:
     return pts
 
 
-def load_camera_frame(mp4_path: str, target_size=(800, 448)) -> np.ndarray:
+def load_camera_frame(mp4_path: str, target_size=(704, 256)) -> np.ndarray:
     """Open mp4, grab middle frame, resize to BEVFusion-expected dims.
+
+    target_size is (W, H) for cv2.resize. It MUST match the config's
+    view_transform `image_size=[256, 704]` (H, W) → feature_size [32, 88]:
+    the LSS depth map and image features are concatenated at feature
+    resolution, so a wrong input size makes their spatial dims disagree
+    (e.g. 448-tall input → feature height 56 ≠ the expected 32).
 
     Returns RGB uint8 (H, W, 3).
     """
@@ -86,25 +83,6 @@ def find_files(nfs_root: str, clip_id: str):
         cams[sensor] = m[0] if m else None
     lidar = globmod.glob(f"{nfs_root}/lidar/lidar_top_360fov/*/{clip_id}.lidar_top_360fov.parquet")
     return cams, (lidar[0] if lidar else None)
-
-
-def build_default_calibration(n_cams=6):
-    """Hardcoded nuScenes-typical intrinsics and lidar2img matrices.
-
-    Used because we're trading accuracy for getting a signal flowing — we
-    only need relative difficulty, not absolute mAP.
-    """
-    # Default nuScenes intrinsics for 1600×900 → scaled to 800×448
-    intrinsics = []
-    for _ in range(n_cams):
-        K = np.array([[600.0, 0.0, 400.0],
-                      [0.0, 600.0, 224.0],
-                      [0.0, 0.0, 1.0]], dtype=np.float32)
-        # Make 4×4 for lidar2img projection
-        Kx = np.eye(4, dtype=np.float32)
-        Kx[:3, :3] = K
-        intrinsics.append(Kx)
-    return intrinsics
 
 
 def main():
@@ -139,74 +117,26 @@ def main():
         if not cams[sensor]:
             print(f"  WARN: missing {sensor}, skipping smoke test")
             sys.exit(2)
-        img = load_camera_frame(cams[sensor])
-        cam_imgs.append(img)
-    imgs = np.stack(cam_imgs, axis=0)  # (6, H, W, 3)
-    print(f"  imgs shape: {imgs.shape}", flush=True)
+        cam_imgs.append(load_camera_frame(cams[sensor]))
+    print(f"  imgs: {len(cam_imgs)} × {cam_imgs[0].shape}", flush=True)
 
-    print(f">>> Constructing data dict ...", flush=True)
-    points_t = torch.from_numpy(points).float().cuda()
-    # BEVFusion expects channels-first (N_cams, 3, H, W) normalized
-    imgs_t = torch.from_numpy(imgs).float().permute(0, 3, 1, 2).cuda() / 255.0
-    imgs_t = imgs_t.unsqueeze(0)  # batch dim
-
-    intrinsics = build_default_calibration(n_cams=len(CAM_ORDER))
-    # Identity extrinsics (placeholder — accept domain shift)
-    eye4 = np.eye(4, dtype=np.float32)
-    lidar2cam = [eye4 for _ in range(len(CAM_ORDER))]
-    cam2lidar = [eye4 for _ in range(len(CAM_ORDER))]  # inverse of identity = identity
-    lidar2img = [intrinsics[i] @ lidar2cam[i] for i in range(len(CAM_ORDER))]
-    img_aug = [eye4 for _ in range(len(CAM_ORDER))]
-
-    data_sample = Det3DDataSample()
-    data_sample.set_metainfo({
-        "img_shape": [(imgs.shape[1], imgs.shape[2])] * len(CAM_ORDER),
-        "ori_shape": [(imgs.shape[1], imgs.shape[2])] * len(CAM_ORDER),
-        "cam2img": intrinsics,
-        "lidar2cam": lidar2cam,
-        "cam2lidar": cam2lidar,
-        "lidar2img": lidar2img,
-        "img_aug_matrix": img_aug,
-        "lidar_aug_matrix": eye4,
-        "lidar_path": lidar_path,
-        "num_views": len(CAM_ORDER),
-    })
-
-    # NOTE: mmdet3d 1.4.0's data_preprocessor.simple_process has an inconsistency:
-    # it checks `if 'img' in data['inputs']` to compute batch_pad_shape, but
-    # then accesses `inputs['imgs']` (plural) for the actual tensor. We pass
-    # both keys with the same tensor to satisfy both code paths.
-    # _get_pad_shape needs a 4D tensor for `img` (NCHW). Multi-cam BEVFusion
-    # uses `imgs` (5D) for the actual fusion path. Pass `imgs_t.squeeze(0)`
-    # which is (N_cams=6, 3, H, W) — treats cams as batch for pad_shape calc.
-    data = {
-        "inputs": {
-            "points": [points_t],
-            "imgs": imgs_t,
-            "img": imgs_t.squeeze(0),
-        },
-        "data_samples": [data_sample],
-    }
-
-    print(f">>> Running inference ...", flush=True)
-    with torch.no_grad():
-        try:
-            result = model.test_step(data)
-            print(f"  result type: {type(result)}")
-            if isinstance(result, list) and result:
-                r = result[0]
-                if hasattr(r, "pred_instances_3d"):
-                    pi = r.pred_instances_3d
-                    print(f"  detections: {len(pi.bboxes_3d)}")
-                    if len(pi.bboxes_3d) > 0:
-                        print(f"  scores range: [{pi.scores_3d.min():.3f}, "
-                              f"{pi.scores_3d.max():.3f}]")
-                        print(f"  classes: {pi.labels_3d.unique().tolist()}")
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"INFERENCE FAILED: {e}")
-            sys.exit(3)
+    print(f">>> Running inference (shared bevfusion_infer.run_frame) ...", flush=True)
+    try:
+        # score_thr=0.0 so the smoke test reports the full raw query set; the
+        # batch scorer applies a real threshold via --score-thr.
+        res = run_frame(model, points, cam_imgs, score_thr=0.0)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"INFERENCE FAILED: {e}")
+        sys.exit(3)
+    print(f"  detections (score>=0): {res['n_detections']}")
+    print(f"  max_conf:              {res['max_conf']:.3f}")
+    print(f"  class_counts:          {res['class_counts']}")
+    if res["n_detections"] == 0:
+        print("WARN: zero detections — check model/inputs")
+        sys.exit(4)
+    print(">>> SMOKE TEST PASSED")
 
 
 if __name__ == "__main__":

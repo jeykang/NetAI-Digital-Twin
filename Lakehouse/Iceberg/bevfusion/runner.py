@@ -47,18 +47,13 @@ import torch
 
 # mmdet3d / BEVFusion imports are deferred to __main__ to keep --help fast.
 
+from bevfusion_infer import CAM_ORDER, IMAGE_HW, run_frame
+
 NFS_ROOT_DEFAULT = "/mnt/netai-e2e/nvidia-physicalai-av-subset"
 PERCEPTION_DIR = ".perception"
 
-CAMERA_SENSORS = [
-    "camera_front_wide_120fov",
-    "camera_front_tele_30fov",
-    "camera_cross_left_120fov",
-    "camera_cross_right_120fov",
-    "camera_rear_left_70fov",
-    "camera_rear_right_70fov",
-    "camera_rear_tele_30fov",
-]
+# Only decode the cameras BEVFusion actually consumes (CAM_ORDER, deduped).
+CAMERA_SENSORS = sorted(set(CAM_ORDER))
 
 
 def parse_args():
@@ -79,6 +74,10 @@ def parse_args():
     p.add_argument("--max-clips", type=int, default=0,
                    help="Limit for testing")
     p.add_argument("--batch-size", type=int, default=1)
+    p.add_argument("--score-thr", type=float, default=0.1,
+                   help="Min box score counted as a detection. The pretrained "
+                        "nuScenes checkpoint has domain shift to PhysicalAI so "
+                        "absolute scores are low; tune via validate_sampling.py")
     return p.parse_args()
 
 
@@ -239,7 +238,7 @@ def main():
           f"frames_per_clip={args.frames_per_clip}, gpu={args.gpu}", flush=True)
 
     # Defer heavy imports until after argparse so --help is fast
-    from mmdet3d.apis import init_model, inference_multi_modality_detector
+    from mmdet3d.apis import init_model
 
     torch.cuda.set_device(args.gpu)
     model = init_model(args.config, args.checkpoint,
@@ -278,34 +277,29 @@ def main():
                     cam_frames[sensor] = f
         lidar_pcs = decode_lidar_frames(lidar_path, args.frames_per_clip)
 
-        # Run BEVFusion per sampled frame index. The mmdet3d API expects
-        # specific input formatting; this is a sketch — actual call signature
-        # depends on the chosen config (e.g. transfusion_lidar_only,
-        # bevfusion_camera_lidar). Calibrate against the chosen config in
-        # the validation pass.
+        # Run BEVFusion per sampled frame index. We need all CAM_ORDER cameras
+        # for the multimodal fusion path; if any are missing for this clip,
+        # fall through to a neutral score (the model can't run without them).
         per_frame = []
-        n = min(len(lidar_pcs or []),
-                min((len(v) for v in cam_frames.values()), default=0))
-        for fi in range(n):
-            try:
-                # Placeholder: the real call structures (image, points)
-                # into the mmdet3d data format and runs inference. This is
-                # the part that depends on the BEVFusion config flavour
-                # (camera+lidar fusion config takes both modalities).
-                # Until we validate the config, emit neutral scores.
-                #
-                # TODO(2026-05-04): replace this stub with a real call
-                # once the chosen BEVFusion config is in place. Track the
-                # blocker via run logs — every clip with a stub call
-                # contributes a neutral result.
-                result = {
-                    "n_detections": 0,
-                    "max_conf": 0.0,
-                    "class_counts": {},
-                }
-                per_frame.append(result)
-            except Exception as e:
-                print(f"  [WARN] {clip_id} frame {fi}: {e}", flush=True)
+        if not all(s in cam_frames for s in CAM_ORDER):
+            missing = [s for s in CAM_ORDER if s not in cam_frames]
+            print(f"  [skip-frames] {clip_id}: missing cams {missing}", flush=True)
+        else:
+            n = min([len(lidar_pcs or [])]
+                    + [len(cam_frames[s]) for s in CAM_ORDER])
+            for fi in range(n):
+                try:
+                    # Assemble the 6-cam stack in CAM_ORDER, resized to the
+                    # config's image size (cv2 wants (W, H)); pixels stay 0-255.
+                    cam_imgs = [
+                        cv2.resize(cam_frames[s][fi], (IMAGE_HW[1], IMAGE_HW[0]))
+                        for s in CAM_ORDER
+                    ]
+                    per_frame.append(
+                        run_frame(model, lidar_pcs[fi], cam_imgs,
+                                  score_thr=args.score_thr))
+                except Exception as e:
+                    print(f"  [WARN] {clip_id} frame {fi}: {e}", flush=True)
 
         scores = perception_score_from_detections(per_frame)
         rows.append({

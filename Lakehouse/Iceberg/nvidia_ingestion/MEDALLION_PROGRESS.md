@@ -749,8 +749,17 @@ falls back from the missing Silver view to Bronze Clip): re-registered
 `clip_index` + `data_collection` (bare parquet), the 3 aux tables, and rebuilt
 canonical `Clip` — no full 3.9 h Bronze rebuild. `aux_egomotion` re-registered at
 98.7 M rows (was 101.7 M pre-PURGE; the gap is the upstream-pruned chunks).
-**Action item: make polaris persistent** (JDBC/Postgres metastore or at least a
-documented re-register step) so this can't recur.
+**Action item: make polaris persistent — DONE (2026-06-19).** Added a `postgres`
+service + `polaris-bootstrap` one-shot (admin tool) to `docker-compose.yml` and
+switched polaris to `polaris.persistence.type=relational-jdbc` (Quarkus
+datasource → postgres). Verified: catalog survives a `docker compose restart
+polaris` with no setup re-run (`lakehouse_catalog` still served; entities read
+from `polaris_schema` in Postgres). Footprint ~47 MB (Postgres baseline; catalog
+rows are KB). Data lives in `./polaris_pg_data` (gitignored). NOTE: switching to
+the Postgres backend re-bootstrapped a fresh empty catalog, so the in-memory
+Clip/aux/clip_scores registered during this session's recovery are gone again —
+they need ONE more re-registration for the Gold wire-up, after which they
+persist for good.
 
 *Preselection*: metadata Gold scoring re-run → `clip_scores`, 306,152 clips,
 range [0.187, 0.836], mean 0.487 (matches prior canonical runs). Cohort =

@@ -13,11 +13,25 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      polaris-bootstrap:
+        condition: service_completed_successfully
     environment:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-minioadmin}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      - POLARIS_BOOTSTRAP_CREDENTIALS=${POLARIS_REALM:-POLARIS},${POLARIS_ROOT_CLIENT_ID:-root},${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
+      # Persistent catalog: relational-jdbc backed by the `postgres` service, so
+      # table/view registrations survive restarts. Previously unset → Polaris
+      # defaulted to an in-memory metastore and lost the whole catalog whenever
+      # the container stopped (the realm/root principal are bootstrapped into
+      # Postgres by the polaris-bootstrap one-shot, so POLARIS_BOOTSTRAP_CREDENTIALS
+      # is no longer set here).
+      - polaris.persistence.type=relational-jdbc
+      - quarkus.datasource.db-kind=postgresql
+      - quarkus.datasource.username=${POLARIS_PG_USER:-polaris}
+      - quarkus.datasource.password=${POLARIS_PG_PASSWORD:-polaris}
+      - quarkus.datasource.jdbc.url=jdbc:postgresql://postgres:5432/${POLARIS_PG_DB:-polaris}
       - polaris.realm-context.realms=${POLARIS_REALM:-POLARIS}
       - quarkus.otel.sdk.disabled=true
     healthcheck:
@@ -26,6 +40,52 @@ services:
       timeout: 10s
       retries: 10
       start_period: 10s
+
+  # 1b. Postgres — persistent metastore for the Polaris catalog.
+  # Stores only catalog pointers/entities (namespaces, tables, views, RBAC) —
+  # not table data or Iceberg metadata files (those live in minio). Footprint
+  # is tens of MB (engine baseline), independent of dataset size.
+  postgres:
+    image: postgres:16
+    container_name: polaris_postgres
+    networks:
+      - lakehouse_net
+    environment:
+      - POSTGRES_USER=${POLARIS_PG_USER:-polaris}
+      - POSTGRES_PASSWORD=${POLARIS_PG_PASSWORD:-polaris}
+      - POSTGRES_DB=${POLARIS_PG_DB:-polaris}
+    volumes:
+      - ./polaris_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POLARIS_PG_USER:-polaris} -d ${POLARIS_PG_DB:-polaris}"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  # 1c. Polaris schema/realm bootstrap (one-shot). Creates the Polaris schema
+  # and root principal in Postgres via the admin tool. Idempotent: skips realms
+  # that already exist, so it is safe to re-run on `compose up`.
+  polaris-bootstrap:
+    image: apache/polaris-admin-tool:latest
+    container_name: polaris_bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lakehouse_net
+    environment:
+      - polaris.persistence.type=relational-jdbc
+      - quarkus.datasource.db-kind=postgresql
+      - quarkus.datasource.username=${POLARIS_PG_USER:-polaris}
+      - quarkus.datasource.password=${POLARIS_PG_PASSWORD:-polaris}
+      - quarkus.datasource.jdbc.url=jdbc:postgresql://postgres:5432/${POLARIS_PG_DB:-polaris}
+    command:
+      - bootstrap
+      - -r
+      - ${POLARIS_REALM:-POLARIS}
+      - -c
+      - ${POLARIS_REALM:-POLARIS},${POLARIS_ROOT_CLIENT_ID:-root},${POLARIS_ROOT_CLIENT_SECRET:-s3cr3t}
 
   # 2. MinIO (S3-compatible Object Storage)
   minio:

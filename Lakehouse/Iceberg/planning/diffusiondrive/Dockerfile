@@ -43,5 +43,9 @@ RUN pip install --no-cache-dir --force-reinstall "numpy==1.23.4"
 # `cached_download`, removed from huggingface_hub>=0.26 — so pin both.
 RUN pip install --no-cache-dir "diffusers==0.27.2" "huggingface_hub==0.23.4"
 
+COPY test_one_clip.py /workspace/DiffusionDrive/test_one_clip.py
+COPY gate_test.py /workspace/DiffusionDrive/gate_test.py
+COPY runner.py /workspace/DiffusionDrive/runner.py
+
 ENV PYTHONPATH=/workspace/DiffusionDrive
 CMD ["python", "-c", "import torch; print('diffusiondrive-runner', torch.__version__, torch.version.cuda)"]

@@ -1002,11 +1002,25 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    so the learned planner adds genuine signal. (Negative sign: the planner
    collapses modes under decisive ego motion, spreads under scene ambiguity.)
 
-   **Status: viable rung-1 signal.** Next (pending decision): pick the signal
-   (mode_spread — relative/robust — vs endpoint open-loop L2 vs a blend), run the
-   cohort, emit `planning_score` to `.planning/*.parquet` under the rung-0
-   contract (replacing/augmenting the CV signal), and re-score Gold. Detachable
-   as ever: `rm -rf planning/diffusiondrive/`.
+   **Status: PRODUCTION rung-1 signal — full run + wire-in DONE (2026-06-22).**
+   Ran DiffusionDrive over all 31,812 lidar-covered clips (`runner.py`, sharded
+   one container per GPU, ~16 h, ~0.27 clips/s/shard, resumable). Signal =
+   `planning_score = clip((mode_spread − 5)/10, 0, 1)` (mean 0.484, stdev 0.229,
+   full range [0.07,1.00]). `finalize.sh` installed the shards into
+   `<NFS>/.planning/`; the loader merge makes DiffusionDrive primary with the
+   rung-0 CV score as the per-clip fallback (~839 clips DD couldn't score). Gold
+   re-scored: 34,700 Gold clips; planning loaded for 32,651 (DD ∪ rung-0).
+
+   Comparison rung-0-plan → DiffusionDrive-plan (305,724 clips): Spearman 0.981,
+   **top-10% Jaccard 0.958 (655 swapped of 30,572)**, cohort top-10% 1,047 →
+   1,320 (**+273 net promoted**), score delta mean **+0.027** (range
+   [−0.14,+0.15]). So unlike perception (a damper), DiffusionDrive planning is a
+   **net promoter** — it raises difficulty for high-`mode_spread` (ambiguous)
+   scenes, and because `mode_spread` anti-correlates with `ego_dynamics` it
+   elevates calm-but-ambiguous scenes the metadata/ego score under-rated: a
+   complementary difficulty axis. Gold difficulty now blends metadata +
+   perception (BEVFusion) + planning (DiffusionDrive). Detachable as ever:
+   `rm -rf planning/diffusiondrive/`.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

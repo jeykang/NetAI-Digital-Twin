@@ -926,13 +926,24 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    widened to [0.158, 0.839]). Fully detachable (planning/README.md: removal =
    3 deletions; score flows through `difficulty_score`+`detail`, no schema
    change). This is the modular plumbing + a gate-proven signal, with zero GPU.
-1. **Learned-planner trajectory + uncertainty** (next) — swap the CV planner
-   for a tractable pretrained E2E planner (VAD/VADv2 or SparseDrive), with real
-   PhysicalAI calibration + ego history + GT-derived high-level command.
-   Difficulty leads with *uncertainty/ensemble disagreement*, with L2
-   residualized against `ego_dynamics`. Same output contract as rung 0, so it
-   drops into the existing `planning/` module + Gold hook. Heavy (GPU container,
-   BEVFusion-style contract surgery, multi-day inference).
+1. **Learned-planner trajectory + uncertainty** (IN PROGRESS — env milestone
+   done 2026-06-22). Planner chosen: **SparseDrive** (efficient E2E, multimodal
+   planning output for the uncertainty signal; checkpoint on GitHub releases).
+   Container `planning/sparsedrive/` (`netai/sparsedrive-runner`, separate older
+   stack: py3.9/torch1.13+cu116/mmcv-full 1.7.1/mmdet 2.28.2 + flash-attn +
+   custom deformable-agg ops) **builds and the model loads + checkpoint applies
+   on GPU** (86.1M params). The nuScenes-coupling blocker (config wants
+   `data/kmeans/*.npy` anchors generated from nuScenes) was bypassed by dumping
+   those anchors straight from the checkpoint buffers (`extract_anchors.py`,
+   baked into the image) — no nuScenes needed.
+
+   *Remaining (the hard part)*: the **inference adapter** — a single-clip
+   open-loop run on PhysicalAI data (6 cams + ego status + nav command +
+   temporal memory, placeholder calibration), bypassing SparseDrive's
+   nuScenes-`.pkl` data pipeline (like BEVFusion's `test_one_clip` but for a
+   streaming E2E planner). Then difficulty = planning uncertainty/multimodality
+   (+ L2 residualized vs `ego_dynamics`), emitted to `.planning/*.parquet` under
+   the SAME contract as rung 0 — so zero Gold-integration rework.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

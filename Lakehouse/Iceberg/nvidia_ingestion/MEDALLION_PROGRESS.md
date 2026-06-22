@@ -774,12 +774,45 @@ score_thr=0.05, writing to `<NFS>/.perception_bevfusion/` (kept separate from th
 retired YOLO scorer's `.perception/`). Runner is now **resumable** (`--resume`,
 default on: reloads the shard parquet and skips scored clips). ETA ~18 h.
 
-**Next steps when work resumes**:
-- After the cascade completes: wire `.perception_bevfusion/` into
-  `_load_perception_scores` (point it at that dir, or move the parquets), re-run
-  Gold with the perception signal, compare cohort vs metadata-only baseline
-  (Spearman + Jaccard, as in §10). Note the catalog must be up for the Gold
-  re-run (and Silver/Gold views recreated, since they were lost).
+**Perception wire-up + comparison: DONE (2026-06-22).** Cascade output (3,338
+clips) wired into Gold scoring and compared to the metadata-only baseline.
+
+*Loader bug found + fixed*: `_load_perception_scores` did `import pyarrow`
+inside a `try/except` that swallowed the error — but the **spark-submit driver
+Python has no pyarrow**, so the import always failed and the perception
+dimension had silently *never* been applied (first run after wire-up wrote
+`non-null perception_score = 0`). Rewrote it to read the parquets via
+`spark.read.parquet` (we're in a Spark context anyway) and pass `self.spark`
+from the caller. Re-run then logged "Loaded perception scores for 3,338 clips"
+and wrote 3,338 non-null perception scores.
+
+*Perception consolidation*: archived the retired YOLO parquets to
+`.perception_yolo_archive/` and placed the two BEVFusion shards in `.perception/`
+(canonical source stays in `.perception_bevfusion/`), so the loader returns
+exactly the cohort.
+
+*Comparison (metadata-only vs perception-active, 306,152 clips)*:
+
+| metric | value |
+|---|---|
+| Spearman overall | 0.9996 |
+| top-10% Jaccard | 0.985 (228 demoted / 228 promoted of 30,615) |
+| cohort in base top-10% → perception top-10% | 688 → 527 |
+| cohort demoted out of top-10% | 228 |
+| cohort score delta | mean −0.004, range [−0.098, +0.060] |
+
+Reproduces the §10 **damper** behaviour: perception mostly lowers scores for
+metadata-hard clips, so 228 "looks-hard-by-metadata-but-visually-empty" clips
+are pulled out of the Gold top-10% and replaced by genuinely harder ones.
+Overall ranking barely moves (only 1.1 % of clips carry perception) but the
+cohort *boundary* — where Gold selection happens — is meaningfully refined.
+
+**Remaining (optional)**:
+- Recreate the full Silver/Gold *views* (lost in the catalog wipe) — needs the
+  full canonical Bronze + aux re-registered and quality_checks re-run; the
+  `clip_scores` table (the actual scoring output) is already perception-active.
+- Characterise the 228 demoted clips by dominant sub-score (as in §10's
+  v5-demoted breakdown), if a deeper write-up is wanted.
 - Wire output parquets to `_load_perception_scores` in edge_case_scorer.py.
   Contract verified (2026-06-19): the loader globs any `*.parquet` under
   `<source>/.perception/` and reads `clip_id`+`perception_score`, which the

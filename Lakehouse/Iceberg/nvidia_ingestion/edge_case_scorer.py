@@ -532,26 +532,31 @@ def _load_chunk_seasons(source_path: str) -> Dict[int, str]:
     return chunk_season
 
 
-def _load_perception_scores(source_path: str) -> Dict[str, float]:
-    """Load camera-model perception scores written by camera_perception_scorer.
+def _load_perception_scores(spark, source_path: str) -> Dict[str, float]:
+    """Load per-clip perception scores written by the perception scorer
+    (BEVFusion runner, or the legacy camera_perception_scorer).
 
-    Each GPU shard writes `<source>/.perception/perception_shard_XX_of_YY.parquet`
-    with columns (clip_id, perception_score, ...). This merges all shards
-    into a `{clip_id: perception_score}` dict. Returns empty dict if none
-    exist (perception dimension is then dropped by compute_scene_score).
+    Each shard writes `<source>/.perception/*.parquet` with columns
+    (clip_id, perception_score, ...). Reads them via Spark and merges into a
+    `{clip_id: perception_score}` dict. Returns empty dict if none exist
+    (perception dimension is then dropped by compute_scene_score).
+
+    Uses Spark rather than pyarrow on purpose: the spark-submit driver Python
+    does not bundle pyarrow, so a pyarrow import here silently failed and the
+    perception dimension was never applied.
     """
     perc_dir = os.path.join(source_path, ".perception")
     out: Dict[str, float] = {}
     if not os.path.isdir(perc_dir):
         return out
+    paths = [f"file://{os.path.join(perc_dir, f)}"
+             for f in sorted(os.listdir(perc_dir)) if f.endswith(".parquet")]
+    if not paths:
+        return out
     try:
-        import pyarrow.parquet as pq
-        for fname in sorted(os.listdir(perc_dir)):
-            if not fname.endswith(".parquet"):
-                continue
-            path = os.path.join(perc_dir, fname)
-            tbl = pq.read_table(path, columns=["clip_id", "perception_score"])
-            for r in tbl.to_pylist():
+        df = spark.read.parquet(*paths).select("clip_id", "perception_score")
+        for r in df.collect():
+            if r["perception_score"] is not None:
                 out[r["clip_id"]] = float(r["perception_score"])
     except Exception as e:
         log.warning("Failed to load perception scores: %s", e)
@@ -688,7 +693,7 @@ class EdgeCaseScorer:
         # scorer has already run. Each shard writes a parquet with per-clip
         # `perception_score` under <source>/.perception/.
         perception_scores: dict = _load_perception_scores(
-            self.config.nvidia.source_path
+            self.spark, self.config.nvidia.source_path
         )
         if perception_scores:
             print(f"  Loaded perception scores for {len(perception_scores):,} clips")

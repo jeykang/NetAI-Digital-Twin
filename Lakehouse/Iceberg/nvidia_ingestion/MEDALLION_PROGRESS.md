@@ -937,13 +937,30 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    those anchors straight from the checkpoint buffers (`extract_anchors.py`,
    baked into the image) — no nuScenes needed.
 
-   *Remaining (the hard part)*: the **inference adapter** — a single-clip
-   open-loop run on PhysicalAI data (6 cams + ego status + nav command +
-   temporal memory, placeholder calibration), bypassing SparseDrive's
-   nuScenes-`.pkl` data pipeline (like BEVFusion's `test_one_clip` but for a
-   streaming E2E planner). Then difficulty = planning uncertainty/multimodality
-   (+ L2 residualized vs `ego_dynamics`), emitted to `.planning/*.parquet` under
-   the SAME contract as rung 0 — so zero Gold-integration rework.
+   *Inference adapter — WORKS (2026-06-22), but signal not yet usable.*
+   `planning/sparsedrive/test_one_clip.py` builds the model's input dict directly
+   (img, timestamp, projection_mat, image_wh, 10-dim ego_status from
+   aux_egomotion, 3-way nav cmd from GT future, img_metas[T_global]), bypassing
+   the nuScenes `.pkl` pipeline. One-clip run produces the full output on
+   PhysicalAI: detections (300 boxes), agent forecasts (`trajs_3d` 300×6×12×2),
+   and the ego plan (`planning_score` 3×6, `planning` 3×6×6×2, `final_planning`
+   6×2). **Must run on the A10 (Ampere)** — flash-attn rejects the RTX 6000
+   (Turing). Anchors dumped from checkpoint; calibration is a placeholder
+   nuScenes-style ring.
+
+   **Open blocker (signal quality)**: under placeholder calibration the planning
+   signal is degenerate — mode entropy ≈ 1.000 (uniform) on every clip tested,
+   and `final_planning` undershoots (~30 m over the horizon vs ~108 m implied by
+   the ego speed). The planner runs but isn't grounded on PhysicalAI. Likely
+   needs **real PhysicalAI calibration** — non-trivial because PhysicalAI
+   cameras are **fisheye/polynomial** (`camera_intrinsics` has width/height/cx/cy
+   /poly_coefs) while SparseDrive assumes pinhole `projection_mat`; a fisheye→
+   pinhole approximation is required, and even then domain shift (no finetuning
+   data) may limit transfer. Decision pending: (a) invest in real-calib
+   grounding, (b) use a calib-robust signal, or (c) keep rung-0 (the gate-proven
+   CV signal) as the production driving-difficulty score. Once a usable signal
+   exists it emits to `.planning/*.parquet` under the rung-0 contract — zero
+   Gold-integration rework.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

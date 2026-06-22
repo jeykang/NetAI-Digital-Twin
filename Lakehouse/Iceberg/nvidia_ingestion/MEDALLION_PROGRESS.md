@@ -807,12 +807,22 @@ are pulled out of the Gold top-10% and replaced by genuinely harder ones.
 Overall ranking barely moves (only 1.1 % of clips carry perception) but the
 cohort *boundary* — where Gold selection happens — is meaningfully refined.
 
-**Remaining (optional)**:
-- Recreate the full Silver/Gold *views* (lost in the catalog wipe) — needs the
-  full canonical Bronze + aux re-registered and quality_checks re-run; the
-  `clip_scores` table (the actual scoring output) is already perception-active.
-- Characterise the 228 demoted clips by dominant sub-score (as in §10's
-  v5-demoted breakdown), if a deeper write-up is wanted.
+**Views recreated + demotion write-up: DONE (2026-06-22).**
+- Re-registered the 5 view-backing canonical Bronze tables (Calibration, Camera,
+  Lidar, Radar, EgoMotion) from existing minio metadata via
+  `system.register_table` — **zero rebuild** (Radar 11.73B, Camera 109.2M, Lidar
+  6.16M, EgoMotion 101.7M, Calibration 458.9K). Rebuilt Silver views via
+  `quality_checks` (Bronze Clip 306,152 → Silver Clip 305,724; **428 excluded**,
+  ~99.86% retention — the hardened missing_sensors is not over-excluding) and
+  Gold views via the gold builder (perception-active; Gold Clip 35,376 at top
+  10%). Both namespaces now have the 6 per-table views again; all in the
+  persistent Postgres catalog.
+- Demotion characterisation written to a standalone doc (not here):
+  [`PERCEPTION_DEMOTION_ANALYSIS.md`](PERCEPTION_DEMOTION_ANALYSIS.md). Key
+  finding: of the 228 demoted, dominant metadata factor is sensor_coverage 47% /
+  time_of_day 28% / season_geography 25%; demoted mean perception 0.468 vs
+  promoted 0.691; 82% are winter clips — i.e. metadata-inflated-but-visually-empty
+  scenes correctly damped out of the cohort.
 - Wire output parquets to `_load_perception_scores` in edge_case_scorer.py.
   Contract verified (2026-06-19): the loader globs any `*.parquet` under
   `<source>/.perception/` and reads `clip_id`+`perception_score`, which the

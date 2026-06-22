@@ -937,10 +937,22 @@ is non-trivial, which is what breaks the ego-kinematics confound.
   pass is already multi-day, so run planning **only on perception-selected
   survivors** (cascade: metadata → perception → planning on the top cohort).
 
-### Cheap de-risking experiment (do before any heavy build)
+### Cheap de-risking experiment — DONE (2026-06-22): GATE PASSED
 
-On the same validation clips, compute open-loop difficulty for a *trivial*
-constant-velocity/yaw-rate planner and correlate (Spearman) against the existing
-`ego_dynamics` sub-score. If ρ ≳ 0.9, L2-style signal is mostly ego-kinematics →
-confirms leading with uncertainty/collision (rung 2) over error-vs-GT. A few
-lines, no GPU.
+Computed a trivial constant-velocity open-loop planner's L2 @3s (positions from
+`labels/egomotion`, finite-diff velocity, frame-agnostic) on 400 random clips
+and correlated (Spearman) against the `ego_dynamics` sub-score (replicated
+exactly: `0.6·min(1,accel_std/3) + 0.4·min(1,curv_std/0.1)`). No GPU, no catalog.
+
+**Result: ρ = 0.69** (0.688 single-step velocity, 0.699 central-difference
+smoothed — robust, so the independent variance is real signal, not
+velocity-estimation noise). CV L2@3s median ≈ 3.1 m.
+
+Verdict: **well below the ρ≳0.9 redundancy threshold → GO.** Refutes the prior
+worry that open-loop L2 is just ego-kinematics: only ~half its rank variance is
+explained by `ego_dynamics` (the rest is real, likely because `ego_dynamics` is
+clipped/saturated and CV-L2 integrates sustained path deviation over the
+horizon). So even the trivial planner adds independent difficulty signal; a
+reactive learned planner should add more. Plain open-loop L2 is therefore a
+legitimate component (residualized against `ego_dynamics`), alongside the
+uncertainty/collision (PDMS) signals.

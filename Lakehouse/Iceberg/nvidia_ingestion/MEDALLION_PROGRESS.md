@@ -915,11 +915,24 @@ is non-trivial, which is what breaks the ego-kinematics confound.
 
 ### Implementation ladder (each rung independently shippable)
 
-1. **Open-loop trajectory + uncertainty** — run a tractable pretrained E2E
-   planner (VAD/VADv2 or SparseDrive over full UniAD, chosen for inference
-   cost), with real PhysicalAI calibration + ego history + GT-derived high-level
-   command. Difficulty leads with *uncertainty/ensemble disagreement*, with L2
-   residualized against `ego_dynamics`. Needs no map/boxes.
+0. **Constant-velocity open-loop L2 — DONE (2026-06-22), the detachable
+   `planning/` module is live.** `planning/runner.py` scores every on-disk clip
+   (32,651) by the L2 @3s of a trivial CV planner vs the GT ego trajectory
+   (`labels/egomotion`); CPU + NFS only. Writes `<NFS>/.planning/*.parquet`
+   (`clip_id, planning_score, cv_l2_3s_m, …`). Wired into Gold via
+   `_load_planning_scores` + a renormalized `planning` dimension
+   (`_SCENE_WEIGHTS["planning"]=0.15`); end-to-end run loaded both perception
+   (3,338) and planning (32,651) and rebuilt Gold (34,427 clips, score range
+   widened to [0.158, 0.839]). Fully detachable (planning/README.md: removal =
+   3 deletions; score flows through `difficulty_score`+`detail`, no schema
+   change). This is the modular plumbing + a gate-proven signal, with zero GPU.
+1. **Learned-planner trajectory + uncertainty** (next) — swap the CV planner
+   for a tractable pretrained E2E planner (VAD/VADv2 or SparseDrive), with real
+   PhysicalAI calibration + ego history + GT-derived high-level command.
+   Difficulty leads with *uncertainty/ensemble disagreement*, with L2
+   residualized against `ego_dynamics`. Same output contract as rung 0, so it
+   drops into the existing `planning/` module + Gold hook. Heavy (GPU container,
+   BEVFusion-style contract surgery, multi-day inference).
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

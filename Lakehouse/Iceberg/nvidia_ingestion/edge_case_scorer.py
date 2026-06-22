@@ -131,6 +131,9 @@ _SCENE_WEIGHTS = {
     "ego_dynamics": 0.30,      # aggressive maneuvers = harder
     "obstacle_density": 0.20,  # more actors = harder (when available)
     "perception": 0.25,        # YOLO/BEVFusion output on camera frames
+    "planning": 0.15,          # driving-difficulty module (open-loop planner);
+                               # modest weight — overlaps ego_dynamics (Spearman
+                               # ~0.69, §13 gate), so kept conservative + tunable
 }
 
 # Time-of-day difficulty (hour_of_day from data_collection)
@@ -280,6 +283,7 @@ def compute_scene_score(
     obstacle_count: Optional[int] = None,
     ego_score: Optional[float] = None,
     perception_score: Optional[float] = None,
+    planning_score: Optional[float] = None,
 ) -> Tuple[float, dict]:
     """Compute composite scene complexity score.
 
@@ -318,6 +322,13 @@ def compute_scene_score(
         active.append("perception")
     else:
         sub["perception"] = None
+
+    # Optional driving-difficulty signal (planning/ module, file-drop interface).
+    if planning_score is not None:
+        sub["planning"] = float(max(0.0, min(1.0, planning_score)))
+        active.append("planning")
+    else:
+        sub["planning"] = None
 
     active_w = sum(_SCENE_WEIGHTS[k] for k in active)
     score = sum(sub[k] * _SCENE_WEIGHTS[k] / active_w for k in active)
@@ -563,6 +574,32 @@ def _load_perception_scores(spark, source_path: str) -> Dict[str, float]:
     return out
 
 
+def _load_planning_scores(spark, source_path: str) -> Dict[str, float]:
+    """Load per-clip driving-difficulty scores from the planning/ module.
+
+    Reads `<source>/.planning/*.parquet` (clip_id, planning_score) via Spark
+    and returns `{clip_id: planning_score}`. Empty dict if the module hasn't
+    run — the `planning` dimension is then dropped by compute_scene_score, so
+    the module is fully detachable.
+    """
+    plan_dir = os.path.join(source_path, ".planning")
+    out: Dict[str, float] = {}
+    if not os.path.isdir(plan_dir):
+        return out
+    paths = [f"file://{os.path.join(plan_dir, f)}"
+             for f in sorted(os.listdir(plan_dir)) if f.endswith(".parquet")]
+    if not paths:
+        return out
+    try:
+        df = spark.read.parquet(*paths).select("clip_id", "planning_score")
+        for r in df.collect():
+            if r["planning_score"] is not None:
+                out[r["clip_id"]] = float(r["planning_score"])
+    except Exception as e:
+        log.warning("Failed to load planning scores: %s", e)
+    return out
+
+
 class EdgeCaseScorer:
     """Orchestrates clip scoring and Gold subset selection."""
 
@@ -700,6 +737,14 @@ class EdgeCaseScorer:
         else:
             print("  No perception scores found; scoring will skip that dimension")
 
+        planning_scores: dict = _load_planning_scores(
+            self.spark, self.config.nvidia.source_path
+        )
+        if planning_scores:
+            print(f"  Loaded planning scores for {len(planning_scores):,} clips")
+        else:
+            print("  No planning scores found; scoring will skip that dimension")
+
         scores = []
         t0 = time.time()
         for i, row in enumerate(rows):
@@ -718,6 +763,7 @@ class EdgeCaseScorer:
                 ego_data=None, obstacle_count=None,
                 ego_score=ego_scores.get(clip_id),
                 perception_score=perception_scores.get(clip_id),
+                planning_score=planning_scores.get(clip_id),
             )
 
             detail = json.dumps({

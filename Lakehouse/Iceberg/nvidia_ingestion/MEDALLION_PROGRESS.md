@@ -956,11 +956,25 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    cameras are **fisheye/polynomial** (`camera_intrinsics` has width/height/cx/cy
    /poly_coefs) while SparseDrive assumes pinhole `projection_mat`; a fisheye→
    pinhole approximation is required, and even then domain shift (no finetuning
-   data) may limit transfer. Decision pending: (a) invest in real-calib
-   grounding, (b) use a calib-robust signal, or (c) keep rung-0 (the gate-proven
-   CV signal) as the production driving-difficulty score. Once a usable signal
-   exists it emits to `.planning/*.parquet` under the rung-0 contract — zero
-   Gold-integration rework.
+   data) may limit transfer.
+
+   **Bounded real-calib test — DONE (2026-06-22): NEGATIVE → SparseDrive
+   shelved.** Built pinhole-approx projection from real PhysicalAI calibration
+   (per-clip extrinsics + fisheye `fw_poly_1` focal, central ~90° of the 120°
+   fisheye; `planning/sparsedrive/calib_test.py`) and tested 15 clips, placeholder
+   vs real calib. Real calibration did **not** restore the signal: planning-mode
+   entropy stays flat (real-calib mean 0.999, **stdev 0.0009** — same as
+   placeholder), and `final_planning` still undershoots (endpoints 6–29 m, mean
+   19 m, vs ~100 m expected at highway speed). Both the mode-confidence and the
+   trajectory heads fail to transfer to PhysicalAI — domain shift
+   (nuScenes→fisheye, no finetuning data) is the bottleneck, not calibration.
+   **Verdict: keep rung-0 (the gate-proven CV signal, ρ=0.69, discriminative,
+   full-coverage, already in Gold) as the driving-difficulty score. SparseDrive
+   stays a documented, detachable experiment** — the container builds and
+   one-clip inference runs (`planning/sparsedrive/`), but it is NOT wired into
+   Gold. Reviving it would need PhysicalAI finetuning (no planning GT) or a
+   transfer-robust planner. Removal cost: `rm -rf planning/sparsedrive/` —
+   nothing imports it.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

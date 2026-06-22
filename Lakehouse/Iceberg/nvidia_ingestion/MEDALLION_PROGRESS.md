@@ -975,6 +975,38 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    Gold. Reviving it would need PhysicalAI finetuning (no planning GT) or a
    transfer-robust planner. Removal cost: `rm -rf planning/sparsedrive/` —
    nothing imports it.
+
+1b. **DiffusionDrive (rung-1, attempt 2) — GATE PASSED (2026-06-22).** Chosen
+   after a web survey for a transfer-robust planner: NAVSIM/Transfuser lineage,
+   input = **lidar BEV raster + stitched forward camera** (no projection
+   matrices), so it sidesteps the camera-appearance + fisheye issues that killed
+   SparseDrive. Container `planning/diffusiondrive/` (`netai/diffusiondrive-runner`):
+   torch 2.0.1, **no mmcv/mmdet/flash-attn/custom ops** → runs on **both GPUs**.
+   Dep pins that mattered: `diffusers==0.27.2` + `huggingface_hub==0.23.4`
+   (newer diffusers needs torch.xpu / drops cached_download); numpy re-pinned
+   1.23.4. Checkpoint: `diffusiondrive_navsim_88p1_PDMS` (HF) — the lidar-BEV
+   NAVSIM variant, NOT the 6-cam `nusc` build. 20-mode trajectory anchor dumped
+   from the checkpoint (`extract` inline).
+
+   Adapter `test_one_clip.py` builds the 3 features from PhysicalAI directly
+   (forward-cam stitch 1024×256; lidar BEV 256×256 from Draco points;
+   status = cmd4+vel2+accel2) — **no calibration needed**. One-clip inference
+   runs and returns a sane plan + detections. The 20-mode distribution
+   (poses_reg/poses_cls) is captured by hooking `DiffMotionPlanningRefinementModule`.
+
+   **Bounded gate (`gate_test.py`, 25 clips): PASS.** mode_spread mean 9.53,
+   **stdev 2.45**, range [6.8,13.9] (discriminative — vs SparseDrive's flat);
+   final-plan endpoint mean 31.3 m, stdev 19.3, range [8.1,59.3] (well-grounded,
+   variable — vs SparseDrive's undershoot); **Spearman(mode_spread,
+   ego_dynamics) = −0.513** → ~75% independent of the rung-0 kinematic signal,
+   so the learned planner adds genuine signal. (Negative sign: the planner
+   collapses modes under decisive ego motion, spreads under scene ambiguity.)
+
+   **Status: viable rung-1 signal.** Next (pending decision): pick the signal
+   (mode_spread — relative/robust — vs endpoint open-loop L2 vs a blend), run the
+   cohort, emit `planning_score` to `.planning/*.parquet` under the rung-0
+   contract (replacing/augmenting the CV signal), and re-score Gold. Detachable
+   as ever: `rm -rf planning/diffusiondrive/`.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

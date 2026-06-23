@@ -79,3 +79,4 @@ yolov8n.pt
 # Persistent Polaris (Iceberg REST catalog) metastore
 polaris_pg_data/
 nvidia_ingestion/_ood_clips.txt
+nvidia_ingestion/_ood_clusters.csv

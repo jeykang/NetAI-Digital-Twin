@@ -136,5 +136,50 @@ slightly above conflict-alone 0.651; metadata no longer drags it). Gold =
 (real discrimination). The production difficulty score now tracks human-judged
 difficulty instead of opposing it.
 
+## Perceptual axis — is darkness a real, under-served difficulty? (2026-06-23)
+`perceptual_axis_analysis.py`. Goal reframed as edge-case mining (keep a clip if
+hard on ANY axis), so this matters: are dark clips being wrongly stripped?
+
+**(A) Every OOD cluster is behavioral, and they happen in daylight.** Per-cluster
+AUC (positives = cluster; n_on_disk small, so indicative):
+| cluster | n | time_of_day | conflict |
+|---|---|---|---|
+| PEDESTRIAN_DENSITY | 52 | 0.355 | **0.866** |
+| SPECIAL_VEHICLE | 34 | 0.320 | 0.654 |
+| ROAD_DEBRIS | 1 | — | 0.646 |
+| CYCLISTS | 9 | 0.369 | 0.621 |
+| EMERGENCY_INCIDENT | 3 | — | 0.588 |
+| WORK_ZONES | 88 | 0.366 | 0.561 |
+| ANIMALS | 4 | — | 0.541 |
+| COMPLEX_INTERSECTION | 5 | — | 0.499 |
+| OTHER_LONGTAIL | 4 | — | 0.212 |
+
+→ `conflict` owns the agent clusters (pedestrian 0.866!). `time_of_day` is <0.5
+for *every* cluster — the human behavioral-hard clips are predominantly *daytime*.
+So ood_reasoning cannot validate darkness, and makes time_of_day look anti.
+
+**(B) Darkness measurably degrades perception in our data** (BEVFusion cohort,
+n=3,334):
+- spearman(time_of_day, mean_max_conf) = **−0.131**; spearman(time_of_day,
+  mean_n_detections) = **−0.174**.
+- DAY: conf 0.505, det 11.53. DARK: conf 0.456, det 8.72 → **−10% confidence,
+  −24% detections in the dark.** Real perceptual-difficulty axis.
+- **But the current scoring under-serves dark clips on every axis**:
+  spearman(time_of_day, conflict) = −0.142 (dark = fewer detected agents →
+  lower conflict), and spearman(time_of_day, perception_score) = −0.096 (the
+  damper reads sparse-detection dark scenes as *easier*, 0.559→0.544 — a perverse
+  inversion). And we just down-weighted time_of_day.
+
+### Conclusion
+The re-weighting made the score **better for behavioral difficulty** (validated)
+but created a **blind spot for perceptual difficulty**: a dark clip where the
+perception stack is genuinely struggling is currently rated *easy* on all three
+axes and would be **stripped out** — the opposite of the edge-case-mining goal.
+Fix: treat difficulty as a **union (max / noisy-OR) of validated axes** —
+behavioral (`conflict`) and perceptual (`time_of_day`/adverse-condition,
+face-valid + degradation-confirmed) — so a clip survives if hard on *either*.
+Weighted-averaging dilutes single-axis-hard clips; union does not. Also repair
+the perception damper's perverse dark-scene inversion.
+
 Regenerate the OOD id list with:
 `python3 -c "import pyarrow.parquet as pq; open('nvidia_ingestion/_ood_clips.txt','w').write('\n'.join(pq.read_table('<ood_reasoning.parquet>',columns=['clip_id']).column('clip_id').to_pylist()))"`

@@ -229,13 +229,14 @@ services:
     tty: true # Required for interactive shell
     volumes:
       # Mount scripts
-      - ./python-scripts:/opt/spark/python-scripts
       - ${USER_DATA_PATH:-./user_data}:/user_data
-      - ./nuscenes_experiment:/opt/spark/nuscenes_experiment # For Iceberg Experiment
-      - ./kaist_ingestion:/opt/spark/kaist_ingestion # KAIST E2E Dataset Ingestion Pipeline
-      - ./benchmarks:/opt/spark/benchmarks # AD Workload Benchmarks
-      - ./nvidia_ingestion:/opt/spark/nvidia_ingestion # Nvidia PhysicalAI Dataset Pipeline
+      - ./kaist_ingestion:/opt/spark/kaist_ingestion # Shared AD-lakehouse schema config (KAISTConfig) used by nvidia_ingestion
+      - ./nvidia_ingestion:/opt/spark/nvidia_ingestion # Nvidia PhysicalAI Dataset Pipeline (active)
       - ./cosmos_augmentation:/opt/spark/cosmos_augmentation # Cosmos synthetic scene generation (optional)
+      # Archived early-setup work (nuScenes/KAIST/Nessie tests, benchmarks) — see archive/
+      - ./archive/python-scripts:/opt/spark/python-scripts
+      - ./archive/nuscenes_experiment:/opt/spark/nuscenes_experiment
+      - ./archive/benchmarks:/opt/spark/benchmarks
       # Host-specific NFS mounts live in docker-compose.override.yml
       # (auto-merged by Docker Compose). See docker-compose.override.yml.example.
     # FUSE support for in-container ratarmount of zip archives

@@ -1,12 +1,12 @@
 #!/bin/bash
 
 mkdir -p ./minio_data
-mkdir -p ./python-scripts
+mkdir -p ./archive/python-scripts
 mkdir -p ./trino_data
 mkdir -p ./user_data
 
 chmod -R 777 ./minio_data
-chmod -R 777 ./python-scripts
+chmod -R 777 ./archive/python-scripts
 chmod -R 777 ./trino_data
 chmod -R 777 ./user_data
 

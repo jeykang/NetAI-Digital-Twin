@@ -123,7 +123,7 @@ You can verify the installed software versions using the following commands:
 5.  **Run the environment setup test**
 
     ```bash
-    spark-submit python-scripts/spark-iceberg-nessie_test.py
+    spark-submit archive/python-scripts/spark-iceberg-nessie_test.py
     ```
 
 6.  **Monitor Spark Jobs**

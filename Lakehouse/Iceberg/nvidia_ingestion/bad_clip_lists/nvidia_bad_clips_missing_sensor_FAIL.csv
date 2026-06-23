@@ -1,0 +1,191 @@
+clip_id,check,reason
+0236384c-5b9d-44ed-a0a6-51728976c042,missing_sensor,Only 9 radar sensors (< 10)
+0293b31d-dd34-4db0-a177-ace2a2496acb,missing_sensor,No Lidar rows
+0368c79a-e305-486d-9a9a-1f77499aaa47,missing_sensor,No Lidar rows
+04a5da41-793d-4a11-ac21-0d47f23949ed,missing_sensor,No Lidar rows
+064b9f19-1dc5-405b-b3b0-aefd6b7f1b7d,missing_sensor,Only 9 radar sensors (< 10)
+0762b3dc-3c15-48d7-ac15-56a4bbb1e934,missing_sensor,No Lidar rows
+0c14cbba-4f05-40d2-a302-40d60689285a,missing_sensor,No Lidar rows
+0dd56413-d94b-409a-a68c-a5e93d07541f,missing_sensor,Only 9 radar sensors (< 10)
+0e0f5f86-9607-4a46-b442-c37ea35ddd9f,missing_sensor,No Lidar rows
+1032bf10-f9cf-4c27-8ce1-017a92f495ec,missing_sensor,No Lidar rows
+124f7dba-735e-4101-81e5-a9be46bd004f,missing_sensor,Only 9 radar sensors (< 10)
+1298081a-cfce-4c09-a111-3cddedbb86e1,missing_sensor,No Lidar rows
+12edb101-e771-453e-97f3-eb513b1c6f3a,missing_sensor,Only 0 radar sensors (< 10)
+14dab2d2-3b64-4246-9938-d039ab2b7375,missing_sensor,Only 9 radar sensors (< 10)
+15bf5295-2c34-4109-a48d-0f7826e840a1,missing_sensor,Only 0 radar sensors (< 10)
+1957a5dc-4669-43fa-8f66-a0380790dbba,missing_sensor,No Lidar rows
+1a00f80b-c6de-4748-add6-3769aa7c45b1,missing_sensor,Only 9 radar sensors (< 10)
+1a5154b7-0f9e-4afd-9367-8a58ccd66100,missing_sensor,No Lidar rows
+1baa62cb-c3f2-4a5d-a4f2-d17e2b94338a,missing_sensor,No Lidar rows
+1c03c41a-2f05-49a9-b4ae-ef9cadab7121,missing_sensor,Only 0 radar sensors (< 10)
+1c4f2c88-20c2-44c9-8903-fea8c3bf59bc,missing_sensor,Only 0 radar sensors (< 10)
+1c6c533d-30a9-4bb3-a137-2e33dadf954c,missing_sensor,No Lidar rows
+1e33d840-9e97-4478-9579-4ee39dbca844,missing_sensor,No Lidar rows
+1ebd25cc-67a3-43b1-b74c-546cd120b652,missing_sensor,Only 0 radar sensors (< 10)
+1fce2e1f-0563-42f4-84ab-60c76a85d844,missing_sensor,No Lidar rows
+224624ef-7b7a-47c4-88c2-fc92363e0a40,missing_sensor,Only 8 radar sensors (< 10)
+24b175af-904a-4678-9645-3c1b3efdf983,missing_sensor,Only 0 radar sensors (< 10)
+26776f8c-4e79-4891-bcdc-84b6145c0ddc,missing_sensor,No Lidar rows
+275dbe78-fadd-4f93-b7fe-a2efb7edff39,missing_sensor,No Lidar rows
+28655214-b40a-413f-99c4-5f6b1a2f4ba8,missing_sensor,No Lidar rows
+28fb6059-1d2a-40a4-9a45-37243f37c20a,missing_sensor,Only 0 radar sensors (< 10)
+299cf8ed-488a-46f8-baba-3a0dab762c82,missing_sensor,No Lidar rows
+29e4c659-956d-481d-8a77-e3a0faba376f,missing_sensor,No Lidar rows
+29f5feee-ad12-49c3-a42b-d2137bf45fa9,missing_sensor,Only 0 radar sensors (< 10)
+2aa19e9c-1437-4e1a-ad80-6dbad2c10b27,missing_sensor,Only 0 radar sensors (< 10)
+30e13bc3-47a8-49b6-b45c-8555383ae92b,missing_sensor,Only 0 radar sensors (< 10)
+313a4af6-3873-4ec9-80d2-9442585c68f2,missing_sensor,Only 0 radar sensors (< 10)
+31a4fb16-11c6-485a-ac3a-d033e217dbb9,missing_sensor,Only 9 radar sensors (< 10)
+31d8d49a-3074-44ea-8d8a-9b023e09151d,missing_sensor,Only 8 radar sensors (< 10)
+328c67b7-1663-4c40-be06-268f2e851c84,missing_sensor,No Lidar rows
+33a0cb59-e9a3-4c42-b510-6f1eabb03f5f,missing_sensor,No Lidar rows
+3460accc-306d-4eea-966c-b79b8dba3543,missing_sensor,No Lidar rows
+346c0a5b-8b9f-4772-8da7-39d00e9eb7a5,missing_sensor,Only 0 radar sensors (< 10)
+34aeb547-e4ae-4c43-ba72-8bd47af18ad9,missing_sensor,Only 0 radar sensors (< 10)
+35dd2814-4930-4b32-8b5c-4f09c341ff03,missing_sensor,No Lidar rows
+36e4cf1a-7460-4918-8be4-a364b724ff9c,missing_sensor,Only 0 radar sensors (< 10)
+36ee6188-fc36-4632-8655-25d846330417,missing_sensor,Only 9 radar sensors (< 10)
+3717dd64-38d8-4a1c-b323-fdf357aa8c5c,missing_sensor,No Lidar rows
+394e3485-e00e-48ae-b4e4-ef7ec5c9796b,missing_sensor,No Lidar rows
+39a5a341-4289-42fd-b21c-69aaa182624f,missing_sensor,Only 0 radar sensors (< 10)
+3b15b779-4271-4f1e-9d74-8ac4d2101e55,missing_sensor,No Lidar rows
+3cdbcd2d-394d-4e60-961d-69dd84ea4094,missing_sensor,No Lidar rows
+3d8536b9-9306-4a08-938f-d84a08dddacc,missing_sensor,Only 0 radar sensors (< 10)
+3e5739b8-0163-4c7c-b3f2-fdc1998ec352,missing_sensor,Only 0 radar sensors (< 10)
+3eeecdf0-d07d-44a6-8bb1-5c4313deb220,missing_sensor,Only 0 radar sensors (< 10)
+450fa16d-f03b-4063-bfff-51135c7ead5b,missing_sensor,No Lidar rows
+472b4efa-2f95-4e7f-a57a-15326f9c32e2,missing_sensor,Only 0 radar sensors (< 10)
+4f1e2131-517b-432d-9067-a6d2d9cf7d39,missing_sensor,Only 0 radar sensors (< 10)
+4fde22f4-e3f2-45fa-88ca-2904ce1c9c45,missing_sensor,No Lidar rows
+5043a188-d0b5-4e05-ae20-332279144d2a,missing_sensor,No Lidar rows
+514bddd8-4425-465e-b82d-a5c23523b989,missing_sensor,No Lidar rows
+529b95e8-ad58-4166-9e28-cd167c170f64,missing_sensor,Only 9 radar sensors (< 10)
+568d5c4b-5b92-424c-b660-d77869663936,missing_sensor,Only 9 radar sensors (< 10)
+57e0b11e-5d88-4f7f-928d-5ea75a746ba3,missing_sensor,Only 9 radar sensors (< 10)
+5fb1a447-cd1c-453f-8465-37ab78655324,missing_sensor,No Lidar rows
+5ff0f157-b70f-4f01-9be4-e78578a578d3,missing_sensor,No Lidar rows
+605dfe9d-a3ec-44a4-9306-d589295ca015,missing_sensor,Only 8 radar sensors (< 10)
+60df54f0-0fd9-4910-ad27-aad96ba66bc9,missing_sensor,No Lidar rows
+63764a1c-574d-4b53-afaa-b06058b8b3fe,missing_sensor,No Lidar rows
+63fe44a0-8e41-454a-91d7-1112139032a4,missing_sensor,Only 0 radar sensors (< 10)
+64331bd9-2b60-41db-a07a-b53789f98f0e,missing_sensor,Only 0 radar sensors (< 10)
+6530db55-a226-4621-bf73-ef27f73b3d11,missing_sensor,No Lidar rows
+6643ac65-5c27-4718-922e-cb62a1a10220,missing_sensor,Only 0 radar sensors (< 10)
+68cce090-8bb7-47f5-a4fc-1e6f4a359494,missing_sensor,No Lidar rows
+6b22c55e-f509-45ed-92af-a04f7d1781da,missing_sensor,Only 0 radar sensors (< 10)
+6ba1ed54-fdc9-4d26-a9fd-27fbbc9323ae,missing_sensor,No Lidar rows
+6d2f765e-e5c7-4d98-a9a0-476e33b36871,missing_sensor,No Lidar rows
+6e488308-6496-49ae-b87a-3296b824d0ec,missing_sensor,No Lidar rows
+6ed64c39-b005-4bd9-9351-45143663fc81,missing_sensor,Only 8 radar sensors (< 10)
+6f3ef796-4c75-4c38-80a6-5363c1b1c391,missing_sensor,Only 9 radar sensors (< 10)
+72d7a10f-8c57-4b14-bd1e-d30db7a01524,missing_sensor,Only 9 radar sensors (< 10)
+743b012a-11aa-46f2-a55f-7fe236ef471f,missing_sensor,No Lidar rows
+7457d962-ba71-4754-8a0c-93dbcf685fbd,missing_sensor,No Lidar rows
+77351ef4-9ff2-48e5-9a0a-6a86b2e3a194,missing_sensor,No Lidar rows
+794f2a84-394a-4304-8897-ca98d9209b1c,missing_sensor,No Lidar rows
+7c7eabc6-e462-4672-8913-de3c89535ac5,missing_sensor,No Lidar rows
+80902441-3f7e-4390-ab53-ab5fcaa1e23f,missing_sensor,Only 9 radar sensors (< 10)
+8152833e-81ae-41a3-b31c-94d6e1696c90,missing_sensor,Only 0 radar sensors (< 10)
+82df459e-1d25-43ad-8a4a-f9d3c28714e9,missing_sensor,No Lidar rows
+8416dca6-21e2-4355-9e19-422209ee11b3,missing_sensor,Only 0 radar sensors (< 10)
+84425a1d-522e-4ba9-8fbf-f698bc6c48f6,missing_sensor,No Lidar rows
+856620be-580f-4d2d-b3e6-0a5f01cd572d,missing_sensor,Only 8 radar sensors (< 10)
+86c04837-6f92-4ff4-94f6-442bdcff976d,missing_sensor,No Lidar rows
+898abc3d-9f50-4d37-a97c-37541389207b,missing_sensor,Only 0 radar sensors (< 10)
+89b509a5-aa18-42ea-b3c3-42d20816a819,missing_sensor,No Lidar rows
+8acb4bfd-f55b-4619-94d4-3e6ca8198baf,missing_sensor,Only 0 radar sensors (< 10)
+8ad0b5c3-aebf-453b-a778-54d196f5c6bb,missing_sensor,No Lidar rows
+8b1e8df5-0d85-499b-9d11-1b96e138c56b,missing_sensor,Only 0 radar sensors (< 10)
+8b460f55-bb00-4e95-b012-2f0218673d39,missing_sensor,Only 8 radar sensors (< 10)
+8b8db807-ec09-42e6-aac8-40c685bf112d,missing_sensor,No Lidar rows
+8bbe2008-f4d0-409b-a643-3151a74197a2,missing_sensor,Only 0 radar sensors (< 10)
+8d76421d-728d-4e09-82a6-9fde0b952565,missing_sensor,Only 0 radar sensors (< 10)
+8e9d0549-795a-4ad7-ab99-861f6e608612,missing_sensor,No Lidar rows
+8f252344-82c2-4443-9965-5dcb5d18dfaa,missing_sensor,Only 0 radar sensors (< 10)
+8f37f03f-de6a-4eca-9752-bffe6e395f20,missing_sensor,No Lidar rows
+900afb2c-d3d3-4909-8372-ac553a2f7173,missing_sensor,Only 8 radar sensors (< 10)
+9069ff81-7ec3-4266-925c-2eb1e3d3e1bd,missing_sensor,No Lidar rows
+91ab3547-b6d9-4fd7-acae-100152027050,missing_sensor,No Lidar rows
+94c26b57-aacb-4a9a-8909-fb4e72deeb0d,missing_sensor,No Lidar rows
+9824d8f8-7249-4e11-87e0-3413089d6609,missing_sensor,No Lidar rows
+9973563c-21e4-4a44-9d51-d6251afaea3f,missing_sensor,Only 9 radar sensors (< 10)
+99b3c8cd-8c84-4acb-ac92-29d83799edd6,missing_sensor,Only 9 radar sensors (< 10)
+9a9407c3-16b4-4e7d-ac9a-668a94538da9,missing_sensor,No Lidar rows
+9ad871a1-d64c-415e-9e8f-b765f066940e,missing_sensor,Only 8 radar sensors (< 10)
+9c0ad946-2ae1-43d9-b265-c24fd067cbe6,missing_sensor,No Lidar rows
+9d9a3f12-2562-4fdd-8ba2-808168fc9c52,missing_sensor,Only 9 radar sensors (< 10)
+9e1cee20-a539-45b9-945e-627079a0de44,missing_sensor,No Lidar rows
+9ee4b72d-6bf4-4617-b07b-8bd477617b23,missing_sensor,Only 0 radar sensors (< 10)
+9f0cbbb5-1b85-4af8-b836-b47520baa818,missing_sensor,Only 8 radar sensors (< 10)
+a00fdaf2-3e5d-463f-95d3-9348b8bc0bdb,missing_sensor,No Lidar rows
+a0b98095-4d2c-4bef-840f-ddf3e201b149,missing_sensor,Only 0 radar sensors (< 10)
+a19e6b58-b0fa-4abc-a0c7-83520da92232,missing_sensor,Only 8 radar sensors (< 10)
+a3c23e28-e49a-42c2-9a1e-372d90059cad,missing_sensor,No Lidar rows
+a46c99f2-7e8c-41fa-bb78-ceea8435b325,missing_sensor,Only 0 radar sensors (< 10)
+a48259ba-09ec-41b0-adeb-706cc92e683d,missing_sensor,Only 9 radar sensors (< 10)
+a4ef5f3b-f1d7-4455-b717-a045b53adfc3,missing_sensor,Only 0 radar sensors (< 10)
+a59d0cca-7c34-4265-8bfd-c79d445d6759,missing_sensor,No Lidar rows
+a5fc1133-5e0b-4161-97ee-0bd5e3e64d22,missing_sensor,Only 0 radar sensors (< 10)
+a903aeb5-7c64-4471-869f-60f66693ea75,missing_sensor,No Lidar rows
+aa7c41d6-0446-486f-9990-f1529bf16be9,missing_sensor,No Lidar rows
+aae878ba-9df1-4e63-bf87-2cb2f0e48185,missing_sensor,No Lidar rows
+ae4810a3-53cc-4a8e-9c27-3e3be05f0334,missing_sensor,No Lidar rows
+ae74fb3c-5c1f-4d99-b7c9-7247d45f28cd,missing_sensor,Only 0 radar sensors (< 10)
+b484fdc9-0e81-45a0-b7b4-ec81f17d0740,missing_sensor,No Lidar rows
+b5eb9f0c-7d13-4a0b-b3b6-28ea7cdc2fda,missing_sensor,Only 0 radar sensors (< 10)
+b638ba8b-e47c-4a87-90e0-183ac9fb7ceb,missing_sensor,Only 0 radar sensors (< 10)
+bc05e6cf-a629-4098-ba97-855ea2eb4d62,missing_sensor,Only 0 radar sensors (< 10)
+bd1f9235-8dbd-4b67-bd90-b07c6a4d52c9,missing_sensor,Only 9 radar sensors (< 10)
+bdef8ab0-6a78-4340-aad3-c7846b1c835b,missing_sensor,Only 0 radar sensors (< 10)
+bf44ddaa-0765-4473-95c8-54cef6794645,missing_sensor,Only 0 radar sensors (< 10)
+bfb78f31-1dad-4cf9-9860-9f83d4ed6d64,missing_sensor,Only 9 radar sensors (< 10)
+c0497d13-4356-43d5-bfcc-35668acb6b34,missing_sensor,Only 8 radar sensors (< 10)
+c2666059-5858-4cc7-8a67-904d9d53976e,missing_sensor,Only 9 radar sensors (< 10)
+c5d527eb-de67-49f1-ba73-3bec798c707a,missing_sensor,No Lidar rows
+c64f3cac-69a1-4544-aade-79520839d01a,missing_sensor,No Lidar rows
+c9125995-5912-41df-a2a9-a79ef066ce50,missing_sensor,Only 9 radar sensors (< 10)
+cc69ea2e-1dc7-48cb-8a7b-f872dcf66abf,missing_sensor,No Lidar rows
+cd4d80f7-e7ca-4269-b423-abd75a52494f,missing_sensor,Only 0 radar sensors (< 10)
+cd8535bc-fee3-4796-b8a5-d32c97b9d1ea,missing_sensor,No Lidar rows
+cea4d689-c59d-4954-99c8-056a545c904c,missing_sensor,Only 0 radar sensors (< 10)
+cf8038c7-1f2d-406a-86de-384e76bf12ef,missing_sensor,No Lidar rows
+d09391da-50c5-4aa1-aa16-08ed9db3f395,missing_sensor,No Lidar rows
+d0f262ea-ae70-4903-8432-3009ec2d1908,missing_sensor,No Lidar rows
+d22a068a-2f1d-4e6b-9281-4632ec83c10e,missing_sensor,Only 8 radar sensors (< 10)
+d3ee04a6-39ca-48e9-9c55-4f2ee7f310ad,missing_sensor,No Lidar rows
+d4d040e5-2165-422a-bcef-4a0af1ba511b,missing_sensor,Only 8 radar sensors (< 10)
+d560092f-c1c2-410c-9cdc-7f3198ed0392,missing_sensor,No Lidar rows
+d7a9cec9-48ee-4220-9066-12430271e610,missing_sensor,No Lidar rows
+d9c47fb3-10be-4531-91ea-3db012cad148,missing_sensor,No Lidar rows
+daf7c6b3-0961-4b2e-a688-b2f49edd55bc,missing_sensor,No Lidar rows
+ddf76411-1eb5-4990-89d8-613447608845,missing_sensor,Only 0 radar sensors (< 10)
+de1a061f-6565-449f-ab07-769db8dce5e4,missing_sensor,No Lidar rows
+de539070-0329-40fa-8c5a-3991250e2b41,missing_sensor,Only 8 radar sensors (< 10)
+df94ff81-87c6-46ae-8e10-2d3cf4a0fe27,missing_sensor,Only 8 radar sensors (< 10)
+e0978de7-f400-4fa8-a932-ecf948ab51c3,missing_sensor,Only 8 radar sensors (< 10)
+e0e6e7cd-2d91-4931-a9b3-37ed9fb4c97d,missing_sensor,Only 0 radar sensors (< 10)
+e159ca48-7ba2-4ac5-8a2e-8ff0673779de,missing_sensor,Only 9 radar sensors (< 10)
+e1d7c6d8-f04e-45e3-960a-4bce64ec8f56,missing_sensor,Only 0 radar sensors (< 10)
+e51a9b75-b511-417c-9841-544919dc63fe,missing_sensor,Only 8 radar sensors (< 10)
+e795bad9-30c6-4c25-bb32-1199ff45ca4a,missing_sensor,Only 8 radar sensors (< 10)
+e7e88a07-b1e0-48d0-bb3d-735e5088c804,missing_sensor,Only 9 radar sensors (< 10)
+e88d8510-708b-4b79-a876-3f0d72959a0e,missing_sensor,Only 0 radar sensors (< 10)
+e8a54ce0-0245-4f7e-8f66-f3a2aeb53629,missing_sensor,No Lidar rows
+f0159e0f-74cb-4fe0-9618-f7dd10ca3de9,missing_sensor,Only 0 radar sensors (< 10)
+f1559b90-8122-4f0b-bdae-8a2fbf6dc80f,missing_sensor,No Lidar rows
+f160d162-7f67-4cfe-adba-367ed3daff3f,missing_sensor,No Lidar rows
+f20280f5-39e1-4418-8aa4-fe0f62fc3db2,missing_sensor,No Lidar rows
+f2f47eec-1c82-4714-a4e0-a6c95044bca2,missing_sensor,Only 8 radar sensors (< 10)
+f3161361-329a-4307-8d00-c2af714f4b91,missing_sensor,No Lidar rows
+f46e917a-1123-432b-ad37-137aba5f0c45,missing_sensor,No Lidar rows
+f50d1d86-1c1f-46ae-b968-9740a0488004,missing_sensor,No Lidar rows
+f54dc4c3-d4a8-4271-8968-25897ec5f29b,missing_sensor,No Lidar rows
+f6f0c474-5ec2-4fea-8c1d-424788161690,missing_sensor,Only 8 radar sensors (< 10)
+f761919f-f964-4a8d-8e00-d1fd8110a5b0,missing_sensor,No Lidar rows
+f81936d2-c6b6-4aef-a791-a6b420ac6c6d,missing_sensor,No Lidar rows
+f903e0d1-9b00-4400-99bd-e9bdcb7bf4cb,missing_sensor,No Lidar rows
+f985e2ca-59ed-4616-b3ca-47b1a79cde92,missing_sensor,No Lidar rows
+fa0ea954-784c-4d35-adc7-9c78f2c2fa26,missing_sensor,No Lidar rows
+fb443cf7-4acd-41b8-ba04-4ade9ec7d6cd,missing_sensor,No Lidar rows
+fc4be7f8-6ae0-4de9-9ef7-f7c85be210bb,missing_sensor,Only 9 radar sensors (< 10)

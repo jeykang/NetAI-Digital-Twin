@@ -1039,6 +1039,23 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    collision/TTC vs detected agents), future work. Perception + metadata
    sub-scores were never negative-control-tested either and warrant the same
    scrutiny.
+
+   **Remediation + the real-scorer direction (2026-06-23).** Detached BOTH
+   invalid planning signals (DiffusionDrive + rung-0 CV) from `.planning/` (moved
+   to `.planning_detached_invalid/`) and re-scored Gold → back to metadata +
+   perception (35,376 Gold clips, "No planning scores found"). Then prototyped a
+   **valid** driving-difficulty signal: **agent-conflict** =
+   score-weighted inverse-distance sum of BEVFusion-detected agents in the
+   forward zone (x∈[0,40] m, |y|<8 m), ego/lidar frame
+   (`bevfusion/agent_conflict_test.py`). Validated on 255 clips (134 OOD / 121
+   non): **negative control passes** (real load 0.104 → blank-scene 0.003 ⇒
+   genuinely scene-driven) and it **aligns with OOD** (AUC 0.605, OOD mean 0.129
+   > non 0.093) — the right direction, opposite mode_spread's 0.373. BEVFusion
+   zero-shot detections are usable (median 7 agents/clip, 8% zero). Strength is
+   **modest** (AUC ~2 SE > 0.5): improvable via TTC/velocity + agent-class
+   weighting (pedestrians) + multi-frame aggregation, and/or trustworthy boxes
+   from `obstacle.offline`. This is the first signal to pass the validity battery
+   — the basis for a real scene-grounded driving-difficulty score.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

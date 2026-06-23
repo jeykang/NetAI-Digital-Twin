@@ -1,6 +1,7 @@
 # Medallion Lakehouse Rework — Progress & Plan
 
-**Last updated**: 2026-04-28
+**Last updated**: 2026-06-23 (see §14 for the latest: validity battery +
+difficulty re-architecture; Gold = 3,176 clips via a validated noisy-OR union)
 **Owner**: jeykang
 **Status**: Recovery complete. Bronze re-registered: lidar 6.16M rows (340/340 chunks, was 9-chunk salvage), radar 11.73B rows across 19 sensors (was 1/19 populated). Silver + Gold re-ran post-recovery; both completed but radar count() returns -1 due to expanded UINT_8 scope (see Open Issues). Top 10% Gold subset = **35,773 clips** (was 45,070 pre-recovery — tightened cohort because new radar coverage signal increased score discrimination). Total post-recovery wall time excluding download: **3h 6m** (Bronze 2h 8m + Silver 42m + Gold 16m).
 
@@ -1102,6 +1103,9 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    as the new agent axis reshuffles the cohort). Detachable per the usual contract
    (delete runner + loader hook + weight). Full synthesis:
    `PROGRESS_REPORT_2026-06.md`.
+   **→ SUPERSEDED by §14 (2026-06-23):** the whole composite was then re-validated
+   and re-architected (the metadata-weighted blend was anti-aligned with human-hard
+   labels); Gold is now a noisy-OR union of validated axes = **3,176 clips**.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.
@@ -1138,3 +1142,60 @@ horizon). So even the trivial planner adds independent difficulty signal; a
 reactive learned planner should add more. Plain open-loop L2 is therefore a
 legitimate component (residualized against `ego_dynamics`), alongside the
 uncertainty/collision (PDMS) signals.
+
+---
+
+## 14. Validity battery + difficulty re-architecture (2026-06-23)
+
+After shipping agent-conflict (§13), ran the same validity battery against the
+**existing** Gold sub-scores — it refuted the production composite, which was then
+re-architected. Full detail: `VALIDITY_BATTERY_FINDINGS.md`; synthesis:
+`PROGRESS_REPORT_2026-06.md`; meeting writeup + figures:
+`MEETING_FACTSHEET_2026-06.md`, `figures/`.
+
+### Finding: the old composite was anti-aligned with human difficulty
+Tested vs `ood_reasoning` (1,740 human-flagged hard clips). Old composite OOD
+**AUC = 0.450** (below the 0.5 chance line — it was selecting *night* clips, not
+*hard-to-drive* ones; dominated by `time_of_day`, ρ=0.797). The metadata dims are
+degenerate/miscalibrated: `season_geography` 92% one value, `ego_dynamics` 89%
+default (AUC ~0.50), `sensor_coverage` 47% maxed + anti-aligned (0.432). Only
+`conflict` (**0.651**; pedestrian-density **0.866**) and weakly `perception`
+(0.564, n=29) track human difficulty. Diagnostics: `battery_investigate.py`.
+
+### Perceptual axis: darkness is real difficulty the old score discarded
+All 9 OOD clusters are *behavioral + daytime*, so they can't validate perceptual
+hardness. Validated it directly (`perceptual_axis_analysis.py`, n=3,334): dark
+clips lose **−10% detection confidence, −24% detections**. Yet the old scoring
+rated dark clips *easier* on every axis (conflict −0.142, perception damper −0.096
+— a perverse inversion), so perceptually-hard clips were being stripped.
+
+### Re-architecture (final): noisy-OR union of validated axes
+Goal is edge-case mining (keep a clip if hard on **any** axis), so the composite
+became a **union**, not a weighted average (`compute_scene_score`):
+`difficulty = 1 − (1 − behavioral)·(1 − perceptual)`
+- **behavioral** = `conflict` (rank-normalized; OOD AUC 0.651)
+- **perceptual** = `max(darkness, 1 − mean_max_conf)`, **rank-normalized over the
+  covered population** (two-pass in `_score_metadata_bulk`) so it shares conflict's
+  scale — without this, night saturated the union (89% dark Gold).
+- Dropped `season_geography`/`ego_dynamics`/`sensor_coverage` from the blend
+  (kept in `detail` for diagnostics); old `_SCENE_WEIGHTS` deprecated.
+- Scoped the tier to the **on-disk 10 TB sample** via a new `sensor_covered`
+  column (conflict/perception present); the ~274k catalog-only clips (not in the
+  sample) are excluded from Gold.
+
+### Result
+- Dark-clip inversion fixed: rank-corr(darkness, composite) **−0.14 → +0.61**.
+- Gold = **3,176 clips** (top 10% of 31,737 sensor-covered); score std 0.087 → ~0.21.
+- Composition balanced: **78% dark, 70% high-conflict** (large both-hard overlap),
+  46% kept purely on the perceptual axis. Behavioral axis still validates (0.651);
+  union vs OOD = 0.616 (lower than conflict-alone *by design* — it also keeps
+  perceptual-hard clips the daytime OOD labels don't cover).
+- Standing validation gate: `validity_battery.py` (+ `union_validate.py`) — reusable
+  on any future dataset/signal.
+
+### Repo cleanup (2026-06-23)
+Archived early-setup work (nuScenes/KAIST/Nessie tests, benchmarks, paper, old
+reports) into `archive/` (git renames, history preserved). Kept the live
+`kaist_ingestion/config.py` (shared AD-lakehouse schema config the NVIDIA pipeline
+imports) + BI/infra (`superset`, `trino`). Active tree is now just
+`nvidia_ingestion`, `planning`, `bevfusion`.

@@ -60,3 +60,22 @@ ngc_key.txt
 
 netai-e2e/
 netai-e2e-orig/
+
+# -----------------------------
+# Demo wall display — keep the code (html/css/js/py/md + cam1-3.jpg fallback
+# frames), exclude generated data & build artifacts (all regenerable).
+# NOTE: gitignore has no inline comments — keep patterns on their own lines.
+# -----------------------------
+# extracted real-clip library (regen: extract_assets.py)
+demo_wall/assets/clips/
+# portable build output (regen: build_portable.py)
+demo_wall_portable/
+# zipped portable bundles for USB transfer
+demo_wall_portable*.zip
+
+# Auto-downloaded ML model weights (not source)
+yolov8n.pt
+*.pt
+# Persistent Polaris (Iceberg REST catalog) metastore
+polaris_pg_data/
+nvidia_ingestion/_ood_clips.txt

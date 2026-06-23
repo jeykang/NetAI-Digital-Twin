@@ -1070,6 +1070,29 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    class/velocity/tracks → **`obstacle.offline`** (the dataset's own labels) is
    the justified next investment to push past the ceiling; otherwise ship the
    simple+multi-frame metric (0.633, validated) as the production driving signal.
+
+   **obstacle.offline result — the ceiling is the CONSTRUCT, not box quality
+   (2026-06-23).** Downloaded the dataset's own boxes for our 340 chunks (16 GB,
+   0 fail; per-track 3D boxes in rig frame with reliable `label_class` incl.
+   person/rider/stroller + `track_id` for velocity). Built a GPU-free conflict
+   scorer (`planning/obstacle_conflict_test.py`; note: obstacle.offline is
+   per-track time series, NOT frame-synced — reconstruct a scene at time T by
+   each track's nearest detection within 0.1 s). Validated vs OOD (451 clips):
+   AUC by metric — simple-forward-proximity **0.647**, rich VRU+TTC 0.633,
+   any-direction count 0.646, VRU-near 0.612, nearest-VRU 0.621. **Every variant
+   sits at ~0.61–0.65**, and GT boxes barely beat zero-shot BEVFusion (0.633).
+   OOD vs non means separate 2–4× (e.g. VRU-near 0.527 vs 0.137) but rank-AUC
+   stays ~0.65 → agent-conflict is a *real but modest* facet of difficulty; the
+   ~0.65 alignment ceiling is intrinsic to the construct (OOD-hard also includes
+   work-zones/weather/layout/ego-maneuver that agent density can't rank) and to
+   the noisy OOD proxy — not to detection quality.
+   **Implications**: (a) the expensive obstacle.offline download was NOT needed
+   for this signal — the cheap label-free BEVFusion path was already at the
+   ceiling (a useful generalization result: a detector suffices, no per-dataset
+   labels required); (b) a single agent-conflict signal caps ~0.65 — going higher
+   needs a *composite* difficulty (agent-conflict + other validated facets), not
+   better boxes. Recommended: ship agent-conflict (cheap BEVFusion boxes) as one
+   validated, modest sub-score; treat difficulty as a multi-facet composite.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

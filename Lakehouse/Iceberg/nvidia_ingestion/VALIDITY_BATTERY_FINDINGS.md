@@ -62,5 +62,63 @@ is the target and the current metadata-dominated weighting is misaligned.
    `season_geography ~ ego_dynamics` −0.844 degeneracy.
 4. **Re-validate** the new composite against `ood_reasoning` (target AUC > 0.6).
 
+## Investigation results (2026-06-23, `battery_investigate.py`)
+
+**(1) Lidar-covered subset (31,737 clips, 200 ood) — the achievable ceiling.**
+| signal | AUC |
+|---|---|
+| composite (current weights) | 0.547 |
+| conflict alone | 0.651 |
+| perception (n=29) | 0.564 |
+| time_of_day | 0.511 |
+| ego_dynamics | 0.500 |
+| season_geography | 0.450 |
+| sensor_coverage | 0.404 |
+| **WHATIF (conflict 0.45 / perception 0.25 / metadata small)** | **0.648** |
+
+→ On covered clips the current composite is only 0.547 (the 274k metadata-only
+clips drag the full-set figure to 0.450). A conflict-centered re-weighting reaches
+0.648 — **essentially conflict-alone (0.651); the metadata dims add nothing
+positive (they slightly dilute).**
+
+**(2) `sensor_coverage` is miscalibrated, not just "a different axis".**
+- ood mean 0.695 < non mean 0.757 → human-hard clips have *better* sensor
+  coverage (they're full-rig clips with events). Anti-alignment confirmed.
+- Histogram: values {0.474: 22.7k, 0.526: 87k, 0.579: 50.7k, **1.0: 145.3k**} —
+  **47% of all clips are scored maximally sensor-deprived (1.0).** Implausible;
+  this is the same naive-sensor-expectation failure mode that the Silver
+  `missing_sensors` rewrite already fixed. The dimension should be dropped or
+  recalibrated against `feature_presence` (expected-sensor truth).
+
+**(3) `season_geography` and `ego_dynamics` are near-constant (degenerate).**
+- season_geography: 5 values, **0.2 covers 281k / 305k clips (92%)**.
+- ego_dynamics: **0.5 (neutral default) covers 273k clips (89%)** — i.e. the ego
+  aggregate is only actually computed for ~11% of clips; the rest fall to the
+  default. And even on the covered subset its AUC is 0.500 (pure chance) — so
+  ego-kinematics doesn't track event-hardness even when present (consistent with
+  the planning-signal failures).
+- The ρ=−0.844 is an **artifact**: where season≠0.2 (the rare 8%), mean ego≈0.17;
+  where season=0.2 (the 92%), mean ego≈0.49. Two mostly-constant columns that
+  deviate together on a small subset → spurious strong rank correlation. Neither
+  carries real discriminative information.
+
+### Net conclusion
+Only `time_of_day` has real variance among the metadata dims, and it's a weak
+*environmental* signal (~0.48–0.51), not event-hardness. `season_geography` and
+`ego_dynamics` are effectively dead (near-constant); `sensor_coverage` is
+miscalibrated and anti-aligned. The validated event/agent signal (`conflict`,
+≈0.65) is the only thing that works — and a conflict-centered composite matches
+conflict-alone. **The real blocker is coverage**: conflict reaches only the
+31,737 lidar clips, so a globally-valid Gold needs conflict-like coverage for the
+rest (BEVFusion camera-detector path) or an explicit lidar-covered event tier.
+
+### Recommended concrete change
+- **Drop** `season_geography` + `ego_dynamics` (degenerate) and **`sensor_coverage`**
+  (miscalibrated) from the difficulty composite.
+- **Re-weight**: conflict primary, perception secondary, `time_of_day` small
+  (keep a light environmental nudge). Re-validate (covered-subset target ~0.65).
+- **Close coverage**: run the label-free BEVFusion *camera* conflict path for the
+  ~274k non-lidar clips, OR scope the difficulty tier to lidar-covered clips.
+
 Regenerate the OOD id list with:
 `python3 -c "import pyarrow.parquet as pq; open('nvidia_ingestion/_ood_clips.txt','w').write('\n'.join(pq.read_table('<ood_reasoning.parquet>',columns=['clip_id']).column('clip_id').to_pylist()))"`

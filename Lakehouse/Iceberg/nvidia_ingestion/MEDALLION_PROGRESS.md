@@ -1021,6 +1021,24 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    complementary difficulty axis. Gold difficulty now blends metadata +
    perception (BEVFusion) + planning (DiffusionDrive). Detachable as ever:
    `rm -rf planning/diffusiondrive/`.
+
+   **VALIDITY FAILURE — `mode_spread` is NOT a valid difficulty signal
+   (2026-06-23).** A validity battery (`planning/diffusiondrive/validate.py` +
+   the `ood_reasoning` external labels; full report:
+   [`planning/diffusiondrive/VALIDITY_REPORT.md`](../planning/diffusiondrive/VALIDITY_REPORT.md))
+   refuted it. Decisive **negative control**: blanking the entire lidar BEV
+   *and* the camera leaves the per-clip ranking ~unchanged (Spearman 0.967 /
+   0.973) → the score is driven by ego status + model priors, NOT the scene.
+   It also anti-aligns with human hard-event labels (AUC 0.373; pedestrian-
+   density lowest), has ~zero correlation with occupancy (−0.045) / perception
+   (0.068), and is noisy (nondeterministic Δ0.38 + frame-unstable). The bounded
+   gate (discriminative + additive) was necessary but **insufficient**.
+   **Action: detach the DiffusionDrive (and likely the rung-0 CV) planning
+   signal from Gold** — both are ego-kinematics-dominated, not scene-driven. A
+   valid planning-difficulty signal must be scene-content-based (rung-2 PDMS:
+   collision/TTC vs detected agents), future work. Perception + metadata
+   sub-scores were never negative-control-tested either and warrant the same
+   scrutiny.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

@@ -113,16 +113,22 @@ sensor-coverage, ego-dynamics) + **perception** (BEVFusion damper, 3,338 clips) 
 **agent-conflict** (obstacle.offline, all 31,812 clips, weight 0.20). The invalid
 planning signals are detached.
 
-**Re-weighted + scoped after the battery (2026-06-23, see
-`VALIDITY_BATTERY_FINDINGS.md`).** The battery showed the old composite was
-*anti-aligned* with human-hard labels (AUC 0.450) — dominated by `time_of_day`,
-with `season_geography`/`ego_dynamics` degenerate and `sensor_coverage`
-miscalibrated. Fix: dropped those three dims, re-weighted to **conflict 0.60 /
-perception 0.25 / time_of_day 0.15**, and scoped the tier to the on-disk 10TB
-sample (the ~31,812 sensor-covered clips; the other ~274k are catalog-only — not
-in the sample — and are excluded from Gold). **Gold = 3,174 clips** (top 10% of
-31,737 sensor-covered; mean 0.503, std 0.223). **Re-validated: composite OOD AUC
-0.450 → 0.655** (now tracks human difficulty, slightly above conflict-alone).
+**Re-architected after the battery (2026-06-23, see `VALIDITY_BATTERY_FINDINGS.md`).**
+The battery showed the old composite was *anti-aligned* with human-hard labels
+(AUC 0.450) — dominated by `time_of_day`, with `season_geography`/`ego_dynamics`
+degenerate and `sensor_coverage` miscalibrated. After investigation + the
+explicit goal (edge-case mining: keep a clip if hard on *any* axis), the scoring
+became a **noisy-OR union of two validated axes** scoped to the on-disk 10TB
+sample (~31,737 sensor-covered clips; ~274k catalog-only excluded):
+`difficulty = 1 − (1−behavioral)(1−perceptual)`, with **behavioral = conflict**
+(OOD AUC 0.651; pedestrian 0.866) and **perceptual = rank-normalized
+max(darkness, 1−detection_confidence)** — darkness being a real perceptual axis
+(empirically −10% confidence / −24% detections in the dark) that the
+behavioral-only OOD labels are blind to. Rank-normalizing the perceptual axis was
+essential (raw darkness=1.0 vetoed the union → 89% dark Gold; after, 78% dark /
+70% high-conflict, balanced). **Gold = 3,176 clips**; spearman(darkness,
+composite) went **−0.142 → +0.610** (perceptually-hard dark clips are now kept,
+not stripped — the inversion is fixed).
 
 ## 7. Lessons & recommendations
 - **Validate, don't assume.** Three intuitive signals failed; the battery is the

@@ -126,17 +126,11 @@ class ModelBackend(abc.ABC):
 # Scene complexity scoring (CPU-only, metadata-based)
 # ---------------------------------------------------------------------------
 
-# Weights for scene complexity sub-scores. Any dimension whose data is
-# unavailable is dropped and remaining weights renormalise (see
-# `compute_scene_score`), so weights here are nominal.
-#
-# Re-weighted 2026-06-23 after the validity battery (VALIDITY_BATTERY_FINDINGS.md):
-# the metadata dims were refuted against the human OOD hard-clip labels —
-# season_geography & ego_dynamics are near-constant (92%/89% one value, AUC ~0.5),
-# sensor_coverage is miscalibrated + anti-aligned (AUC 0.43). They are now DROPPED
-# from the blend (weight 0; still computed into `detail` for diagnostics). The
-# composite is centered on the validated signals: conflict (OOD AUC ~0.65) primary,
-# perception secondary, with a light time_of_day environmental nudge.
+# DEPRECATED (2026-06-23): the weighted-average composite is superseded by the
+# noisy-OR axis union in `compute_scene_score` (behavioral=conflict ∪ perceptual=
+# darkness/low-conf), after the validity battery refuted the metadata dims and the
+# edge-case-mining goal called for a union, not an average
+# (VALIDITY_BATTERY_FINDINGS.md). Kept only for reference; not read anywhere.
 _SCENE_WEIGHTS = {
     "time_of_day": 0.15,       # weak environmental nudge (battery AUC ~0.51)
     "season_geography": 0.0,   # DROPPED: near-constant (92% one value), no signal
@@ -299,17 +293,23 @@ def compute_scene_score(
     perception_score: Optional[float] = None,
     planning_score: Optional[float] = None,
     conflict_score: Optional[float] = None,
+    low_conf_score: Optional[float] = None,
 ) -> Tuple[float, dict]:
-    """Compute composite scene complexity score.
+    """Compute composite difficulty for edge-case mining.
 
-    Returns (score, sub_scores_dict)
+    Returns (score, sub_scores_dict).
 
-    `ego_score` overrides the trajectory-based ego_dynamics calc; bulk mode
-    passes a pre-computed value from Spark-side aggregates so we don't have
-    to read egomotion per-clip.
-    `perception_score` is an externally-computed model output ∈ [0, 1] from
-    running a detector (YOLO/BEVFusion) on camera/lidar frames; when None
-    the dimension is dropped and remaining weights renormalise.
+    The composite is a **noisy-OR union of two validated hardness axes** (not a
+    weighted average), because the goal is to KEEP a clip if it is hard on EITHER
+    axis and strip only the trivially-easy (VALIDITY_BATTERY_FINDINGS.md):
+      behavioral = agent-interaction difficulty  -> `conflict_score`
+      perceptual = perception-degradation difficulty -> darkness (time_of_day)
+                   reinforced by low detection confidence (`low_conf_score`).
+      difficulty = 1 - (1 - behavioral) * (1 - perceptual)
+
+    `ego_score`/`perception_score`/`planning_score` are kept in `sub` for
+    diagnostics but no longer drive the composite (battery-refuted / superseded).
+    `low_conf_score` ∈ [0,1] is 1 − mean_max_conf from the BEVFusion stats.
     """
     sub = {}
     sub["time_of_day"] = _score_time_of_day(hour)
@@ -320,44 +320,33 @@ def compute_scene_score(
     else:
         sub["ego_dynamics"] = _score_ego_dynamics(ego_data or [])
 
-    # Dimensions with no data are set to None and excluded from the weighted
-    # sum (remaining weights then renormalise to 1.0). This beats the old
-    # "mirror to another sub-score" fallback, which double-counted one signal.
-    #
-    # season_geography / sensor_coverage / ego_dynamics are still computed above
-    # (kept in `sub` for diagnostics) but are NO LONGER in `active` — the battery
-    # refuted them (VALIDITY_BATTERY_FINDINGS.md). Only time_of_day remains as a
-    # base metadata dim; the blend is carried by conflict (+ perception).
-    active = ["time_of_day"]
+    # Optional sub-scores — computed into `sub` for diagnostics. season_geography
+    # / sensor_coverage / ego_dynamics / obstacle_density / perception / planning
+    # are kept for the record but do NOT drive the composite (battery-refuted or
+    # superseded by the axis union below).
+    def _clamp(v):
+        return float(max(0.0, min(1.0, v))) if v is not None else None
+    sub["obstacle_density"] = (min(1.0, obstacle_count / 20.0)
+                               if obstacle_count is not None else None)
+    sub["perception"] = _clamp(perception_score)
+    sub["planning"] = _clamp(planning_score)
+    sub["conflict"] = _clamp(conflict_score)
+    sub["low_conf"] = _clamp(low_conf_score)
 
-    if obstacle_count is not None:
-        sub["obstacle_density"] = min(1.0, obstacle_count / 20.0)
-        active.append("obstacle_density")
-    else:
-        sub["obstacle_density"] = None
-
-    if perception_score is not None:
-        sub["perception"] = float(max(0.0, min(1.0, perception_score)))
-        active.append("perception")
-    else:
-        sub["perception"] = None
-
-    # Optional driving-difficulty signal (planning/ module, file-drop interface).
-    if planning_score is not None:
-        sub["planning"] = float(max(0.0, min(1.0, planning_score)))
-        active.append("planning")
-    else:
-        sub["planning"] = None
-
-    # Optional agent-interaction (conflict) signal (.conflict/ file-drop).
-    if conflict_score is not None:
-        sub["conflict"] = float(max(0.0, min(1.0, conflict_score)))
-        active.append("conflict")
-    else:
-        sub["conflict"] = None
-
-    active_w = sum(_SCENE_WEIGHTS[k] for k in active)
-    score = sum(sub[k] * _SCENE_WEIGHTS[k] / active_w for k in active)
+    # --- Edge-case mining: difficulty = noisy-OR union of validated axes ---
+    # Keep a clip if it is hard on EITHER axis (a weighted average would dilute a
+    # clip hard on only one axis and wrongly strip it). See VALIDITY_BATTERY_FINDINGS.md.
+    #   behavioral  = agent-interaction difficulty  -> conflict (OOD AUC ~0.65)
+    #   perceptual  = perception-degradation diff.   -> darkness (time_of_day;
+    #                 face-valid + empirically -10% conf / -24% detections in the
+    #                 dark), reinforced by low detection confidence where available.
+    behavioral = sub["conflict"] if sub["conflict"] is not None else 0.0
+    perceptual = sub["time_of_day"]
+    if sub["low_conf"] is not None:
+        perceptual = max(perceptual, sub["low_conf"])
+    sub["behavioral_axis"] = behavioral
+    sub["perceptual_axis"] = perceptual
+    score = 1.0 - (1.0 - behavioral) * (1.0 - perceptual)
     return score, sub
 
 
@@ -600,6 +589,30 @@ def _load_perception_scores(spark, source_path: str) -> Dict[str, float]:
     return out
 
 
+def _load_low_conf_scores(spark, source_path: str) -> Dict[str, float]:
+    """Perception-degradation signal: 1 − mean_max_conf per clip from the
+    BEVFusion stats (`<source>/.perception/*.parquet`). High = the detector is
+    uncertain (e.g. low light / adverse conditions) = perceptually hard. Feeds
+    the perceptual axis of compute_scene_score. Empty dict if none exist.
+    """
+    perc_dir = os.path.join(source_path, ".perception")
+    out: Dict[str, float] = {}
+    if not os.path.isdir(perc_dir):
+        return out
+    paths = [f"file://{os.path.join(perc_dir, f)}"
+             for f in sorted(os.listdir(perc_dir)) if f.endswith(".parquet")]
+    if not paths:
+        return out
+    try:
+        df = spark.read.parquet(*paths).select("clip_id", "mean_max_conf")
+        for r in df.collect():
+            if r["mean_max_conf"] is not None:
+                out[r["clip_id"]] = float(max(0.0, min(1.0, 1.0 - r["mean_max_conf"])))
+    except Exception as e:
+        log.warning("Failed to load low_conf scores: %s", e)
+    return out
+
+
 def _load_planning_scores(spark, source_path: str) -> Dict[str, float]:
     """Load per-clip driving-difficulty scores from the planning/ module.
 
@@ -804,7 +817,15 @@ class EdgeCaseScorer:
         else:
             print("  No conflict scores found; scoring will skip that dimension")
 
-        scores = []
+        low_conf_scores: dict = _load_low_conf_scores(
+            self.spark, self.config.nvidia.source_path
+        )
+        if low_conf_scores:
+            print(f"  Loaded low-confidence (perceptual) scores for "
+                  f"{len(low_conf_scores):,} clips")
+
+        # First pass: compute per-clip axes (behavioral=conflict, perceptual=raw).
+        recs = []
         t0 = time.time()
         for i, row in enumerate(rows):
             d = row.asDict()
@@ -813,45 +834,63 @@ class EdgeCaseScorer:
             hour = d.get("hour_of_day") or 12
             country = d.get("country") or "Unknown"
             season = chunk_seasons.get(chunk, "summer")
-
-            # Build sensor flags dict
             sensor_flags = {rc: bool(d.get(rc)) for rc in radar_cols}
 
-            scene_score, sub_scores = compute_scene_score(
+            _, sub = compute_scene_score(
                 hour, season, country, sensor_flags,
                 ego_data=None, obstacle_count=None,
                 ego_score=ego_scores.get(clip_id),
                 perception_score=perception_scores.get(clip_id),
                 planning_score=planning_scores.get(clip_id),
                 conflict_score=conflict_scores.get(clip_id),
+                low_conf_score=low_conf_scores.get(clip_id),
             )
-
-            detail = json.dumps({
-                "method": "metadata-scene-complexity",
-                "sub_scores": {k: (round(v, 4) if v is not None else None)
-                           for k, v in sub_scores.items()},
-                "hour": hour,
-                "season": season,
-                "country": country,
-                "chunk": chunk,
+            recs.append({
+                "clip_id": clip_id, "hour": hour, "season": season,
+                "country": country, "chunk": chunk, "sub": sub,
+                "behavioral": sub["behavioral_axis"],
+                "perceptual_raw": sub["perceptual_axis"],
+                "covered": (conflict_scores.get(clip_id) is not None
+                            or perception_scores.get(clip_id) is not None),
             })
+            if (i + 1) % 50000 == 0:
+                el = time.time() - t0
+                print(f"  [{i+1}/{total}] {el:.0f}s, {(i+1)/el:.0f} clips/s")
 
+        # Rank-normalize the perceptual axis over the covered population so it is
+        # on the same uniform [0,1] scale as conflict (already rank-normalized by
+        # the conflict runner). Otherwise darkness=1.0 for night saturates the
+        # noisy-OR into a veto and crowds out validated daytime behavioral cases.
+        cov = [r for r in recs if r["covered"]]
+        order = sorted(range(len(cov)), key=lambda k: cov[k]["perceptual_raw"])
+        denom = max(1, len(cov) - 1)
+        for rnk, k in enumerate(order):
+            cov[k]["perceptual"] = rnk / denom
+        for r in recs:
+            r.setdefault("perceptual", r["perceptual_raw"])  # non-covered (excluded from Gold)
+
+        # Second pass: difficulty = noisy-OR union of the two comparable axes.
+        scores = []
+        for r in recs:
+            diff = 1.0 - (1.0 - r["behavioral"]) * (1.0 - r["perceptual"])
+            r["sub"]["perceptual_axis"] = round(r["perceptual"], 4)  # store normalized axis
+            detail = json.dumps({
+                "method": "noisy-or-union(behavioral=conflict, perceptual=darkness/low_conf)",
+                "sub_scores": {k: (round(v, 4) if v is not None else None)
+                               for k, v in r["sub"].items()},
+                "hour": r["hour"], "season": r["season"],
+                "country": r["country"], "chunk": r["chunk"],
+            })
             scores.append(Row(
-                clip_id=clip_id,
-                difficulty_score=float(scene_score),
-                scene_score=float(scene_score),
-                perception_score=perception_scores.get(clip_id),
+                clip_id=r["clip_id"],
+                difficulty_score=float(diff),
+                scene_score=float(diff),
+                perception_score=perception_scores.get(r["clip_id"]),
                 backend="metadata",
                 detail=detail,
                 scored_at=ts,
-                sensor_covered=(conflict_scores.get(clip_id) is not None
-                                or perception_scores.get(clip_id) is not None),
+                sensor_covered=r["covered"],
             ))
-
-            if (i + 1) % 50000 == 0:
-                elapsed = time.time() - t0
-                print(f"  [{i+1}/{total}] {elapsed:.0f}s, "
-                      f"{(i+1)/elapsed:.0f} clips/s")
 
         elapsed = time.time() - t0
         print(f"  Scored {total:,} clips in {elapsed:.1f}s "

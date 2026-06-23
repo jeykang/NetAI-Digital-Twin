@@ -181,5 +181,33 @@ face-valid + degradation-confirmed) — so a clip survives if hard on *either*.
 Weighted-averaging dilutes single-axis-hard clips; union does not. Also repair
 the perception damper's perverse dark-scene inversion.
 
+## Final design — noisy-OR union of validated axes (APPLIED 2026-06-23)
+The weighted re-weight above was **superseded** by a union, matching the
+edge-case-mining goal (keep a clip if hard on EITHER axis; strip only trivial):
+
+`difficulty = 1 − (1 − behavioral) · (1 − perceptual)` where
+- **behavioral** = `conflict` (rank-normalized; OOD AUC 0.651, pedestrian 0.866),
+- **perceptual** = `max(darkness, 1 − mean_max_conf)`, **rank-normalized over the
+  covered population** so it shares conflict's uniform [0,1] scale.
+
+The rank-normalization was essential: with raw darkness (=1.0 for night), the
+noisy-OR turned night into a *veto* (Gold 89% dark, validated daytime cases
+crowded out). After rank-norm the axes are balanced:
+
+| Gold composition (3,174 clips) | raw darkness | rank-normalized |
+|---|---|---|
+| dark (time_of_day ≥ 0.7) | 89% | 78% |
+| high-conflict (≥ 0.7) | 38% | 70% |
+| perceptual-rescued (low conflict) | 70% | 46% |
+
+Validation: conflict (behavioral) AUC 0.651 holds; perceptual axis 0.506 vs OOD
+(expected — OOD is daytime-behavioral); composite 0.616 vs OOD (lower than
+conflict-alone *by design* — it also keeps perceptually-hard clips OOD doesn't
+label); spearman(darkness, composite) **−0.142 → +0.610** (the dark-clip
+inversion is fixed). Implemented in `compute_scene_score` (two-pass rank-norm in
+`_score_metadata_bulk`); `union_validate.py` is the standing check. Balance is
+tunable (axis exponents / weighted noisy-OR) if behavioral should outrank
+perceptual.
+
 Regenerate the OOD id list with:
 `python3 -c "import pyarrow.parquet as pq; open('nvidia_ingestion/_ood_clips.txt','w').write('\n'.join(pq.read_table('<ood_reasoning.parquet>',columns=['clip_id']).column('clip_id').to_pylist()))"`

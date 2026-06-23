@@ -120,5 +120,21 @@ rest (BEVFusion camera-detector path) or an explicit lidar-covered event tier.
 - **Close coverage**: run the label-free BEVFusion *camera* conflict path for the
   ~274k non-lidar clips, OR scope the difficulty tier to lidar-covered clips.
 
+## Resolution — APPLIED 2026-06-23
+Re-weighted + scoped the difficulty composite (`edge_case_scorer.py`):
+- **Dropped** `season_geography`, `ego_dynamics` (degenerate) and `sensor_coverage`
+  (miscalibrated) from the blend — weight 0; still computed into `detail` for
+  diagnostics. New weights: **conflict 0.60, perception 0.25, time_of_day 0.15**.
+- **Scoped** the difficulty tier to sensor-covered clips via a new
+  `sensor_covered` score column (has conflict/perception = is in the on-disk 10TB
+  sample). Threshold, selection, and stats all filter on it; catalog-only clips
+  are excluded from Gold.
+
+**Re-validated**: composite OOD AUC **0.450 → 0.655** on the covered tier (now
+slightly above conflict-alone 0.651; metadata no longer drags it). Gold =
+**3,174 clips** (top 10% of 31,737 sensor-covered), score std 0.087 → 0.223
+(real discrimination). The production difficulty score now tracks human-judged
+difficulty instead of opposing it.
+
 Regenerate the OOD id list with:
 `python3 -c "import pyarrow.parquet as pq; open('nvidia_ingestion/_ood_clips.txt','w').write('\n'.join(pq.read_table('<ood_reasoning.parquet>',columns=['clip_id']).column('clip_id').to_pylist()))"`

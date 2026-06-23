@@ -113,13 +113,16 @@ sensor-coverage, ego-dynamics) + **perception** (BEVFusion damper, 3,338 clips) 
 **agent-conflict** (obstacle.offline, all 31,812 clips, weight 0.20). The invalid
 planning signals are detached.
 
-Re-scored with `conflict` active (2026-06-23): **Gold = 35,055 clips** of 305,724
-(score mean 0.489, std 0.087, range [0.174, 0.813]). Adding the agent-interaction
-axis shifted the cohort by ~321 clips vs the prior metadata+perception-only
-35,376 — agent-dense scenes rise, some metadata-only-hard clips drop out (the
-expected effect of a genuinely new, validated axis). conflict_score is
-rank-normalized over the 31,812 lidar-covered clips (26% have no forward-zone
-agent → score 0).
+**Re-weighted + scoped after the battery (2026-06-23, see
+`VALIDITY_BATTERY_FINDINGS.md`).** The battery showed the old composite was
+*anti-aligned* with human-hard labels (AUC 0.450) — dominated by `time_of_day`,
+with `season_geography`/`ego_dynamics` degenerate and `sensor_coverage`
+miscalibrated. Fix: dropped those three dims, re-weighted to **conflict 0.60 /
+perception 0.25 / time_of_day 0.15**, and scoped the tier to the on-disk 10TB
+sample (the ~31,812 sensor-covered clips; the other ~274k are catalog-only — not
+in the sample — and are excluded from Gold). **Gold = 3,174 clips** (top 10% of
+31,737 sensor-covered; mean 0.503, std 0.223). **Re-validated: composite OOD AUC
+0.450 → 0.655** (now tracks human difficulty, slightly above conflict-alone).
 
 ## 7. Lessons & recommendations
 - **Validate, don't assume.** Three intuitive signals failed; the battery is the

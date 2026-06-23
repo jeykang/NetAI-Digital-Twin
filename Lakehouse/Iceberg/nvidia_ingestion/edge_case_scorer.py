@@ -55,6 +55,7 @@ from typing import Dict, List, Optional, Tuple
 from pyspark.sql import DataFrame, Row, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
+    BooleanType,
     DoubleType,
     StringType,
     StructField,
@@ -78,6 +79,10 @@ SCORE_SCHEMA = StructType([
     StructField("backend", StringType(), False),
     StructField("detail", StringType(), True),              # JSON blob with sub-scores
     StructField("scored_at", StringType(), False),
+    StructField("sensor_covered", BooleanType(), True),    # has a sensor-based
+    # signal (conflict/perception) — i.e. is in the on-disk 10TB sample. The
+    # difficulty tier is scoped to these; catalog-only clips score on weak
+    # metadata alone (battery 2026-06-23) and are excluded from Gold.
 ])
 
 
@@ -124,19 +129,25 @@ class ModelBackend(abc.ABC):
 # Weights for scene complexity sub-scores. Any dimension whose data is
 # unavailable is dropped and remaining weights renormalise (see
 # `compute_scene_score`), so weights here are nominal.
+#
+# Re-weighted 2026-06-23 after the validity battery (VALIDITY_BATTERY_FINDINGS.md):
+# the metadata dims were refuted against the human OOD hard-clip labels —
+# season_geography & ego_dynamics are near-constant (92%/89% one value, AUC ~0.5),
+# sensor_coverage is miscalibrated + anti-aligned (AUC 0.43). They are now DROPPED
+# from the blend (weight 0; still computed into `detail` for diagnostics). The
+# composite is centered on the validated signals: conflict (OOD AUC ~0.65) primary,
+# perception secondary, with a light time_of_day environmental nudge.
 _SCENE_WEIGHTS = {
-    "time_of_day": 0.20,       # night driving is harder
-    "season_geography": 0.15,  # winter + northern = harder
-    "sensor_coverage": 0.15,   # fewer sensors = harder
-    "ego_dynamics": 0.30,      # aggressive maneuvers = harder
+    "time_of_day": 0.15,       # weak environmental nudge (battery AUC ~0.51)
+    "season_geography": 0.0,   # DROPPED: near-constant (92% one value), no signal
+    "sensor_coverage": 0.0,    # DROPPED: miscalibrated (47% maxed), anti-aligned
+    "ego_dynamics": 0.0,       # DROPPED: 89% default, AUC 0.500 (chance)
     "obstacle_density": 0.20,  # more actors = harder (when available)
-    "perception": 0.25,        # YOLO/BEVFusion output on camera frames
-    "planning": 0.15,          # driving-difficulty module (open-loop planner);
-                               # modest weight — overlaps ego_dynamics (Spearman
-                               # ~0.69, §13 gate), so kept conservative + tunable
-    "conflict": 0.20,          # agent-interaction difficulty (obstacle.offline);
-                               # validated facet (OOD AUC ~0.65), genuinely new
-                               # axis (no agent info elsewhere). Modest, tunable.
+    "perception": 0.25,        # BEVFusion damper — validated secondary (modest)
+    "planning": 0.15,          # detached driving-difficulty module (open-loop);
+                               # refuted by the battery, kept only as a hook
+    "conflict": 0.60,          # agent-interaction difficulty (obstacle.offline);
+                               # the one validated facet (OOD AUC ~0.65) — primary
 }
 
 # Time-of-day difficulty (hour_of_day from data_collection)
@@ -312,8 +323,12 @@ def compute_scene_score(
     # Dimensions with no data are set to None and excluded from the weighted
     # sum (remaining weights then renormalise to 1.0). This beats the old
     # "mirror to another sub-score" fallback, which double-counted one signal.
-    active = ["time_of_day", "season_geography", "sensor_coverage",
-              "ego_dynamics"]
+    #
+    # season_geography / sensor_coverage / ego_dynamics are still computed above
+    # (kept in `sub` for diagnostics) but are NO LONGER in `active` — the battery
+    # refuted them (VALIDITY_BATTERY_FINDINGS.md). Only time_of_day remains as a
+    # base metadata dim; the blend is carried by conflict (+ perception).
+    active = ["time_of_day"]
 
     if obstacle_count is not None:
         sub["obstacle_density"] = min(1.0, obstacle_count / 20.0)
@@ -829,6 +844,8 @@ class EdgeCaseScorer:
                 backend="metadata",
                 detail=detail,
                 scored_at=ts,
+                sensor_covered=(conflict_scores.get(clip_id) is not None
+                                or perception_scores.get(clip_id) is not None),
             ))
 
             if (i + 1) % 50000 == 0:
@@ -955,6 +972,7 @@ class EdgeCaseScorer:
                 backend=self.backend.name(),
                 detail=detail,
                 scored_at=ts,
+                sensor_covered=True,   # GPU backends run on on-disk sensor data
             ))
 
             if (i + 1) % 100 == 0 or (i + 1) == len(clip_rows):
@@ -986,9 +1004,14 @@ class EdgeCaseScorer:
         total_scored = self.spark.table(scores_table).count()
         print(f"  Wrote {total_scored:,} scores to {scores_table}")
 
-        # Determine threshold
+        # Determine threshold — over the SENSOR-COVERED clips only (the on-disk
+        # 10TB sample). Catalog-only clips lack a validated signal and are
+        # excluded from the difficulty tier (battery, 2026-06-23).
+        covered = scores_df.filter(F.col("sensor_covered"))
+        n_covered = covered.count()
+        print(f"  Sensor-covered (on-disk) clips: {n_covered:,} of {total_scored:,}")
         threshold_row = (
-            scores_df
+            covered
             .filter(F.col("difficulty_score") >= 0)
             .selectExpr(
                 f"percentile_approx(difficulty_score, "
@@ -1003,14 +1026,14 @@ class EdgeCaseScorer:
         print(f"  Difficulty threshold: {threshold:.4f} "
               f"(top {top_pct}% of scored clips)")
 
-        # Gold clip_ids
+        # Gold clip_ids (sensor-covered + above threshold)
         n_gold = (
-            scores_df
+            covered
             .filter(F.col("difficulty_score") >= threshold)
             .filter(F.col("difficulty_score") >= 0)
             .count()
         )
-        print(f"  Gold clips: {n_gold:,} (of {total_scored:,})")
+        print(f"  Gold clips: {n_gold:,} (of {n_covered:,} sensor-covered)")
 
         # Create Gold views for each Silver/Bronze table+view.
         # Silver sensor objects are Iceberg VIEWs, so SHOW TABLES misses them;
@@ -1057,7 +1080,8 @@ class EdgeCaseScorer:
                         f"WHERE s.clip_id IN ("
                         f"  SELECT clip_id FROM {scores_table} "
                         f"  WHERE difficulty_score >= {threshold} "
-                        f"  AND difficulty_score >= 0"
+                        f"  AND difficulty_score >= 0 "
+                        f"  AND sensor_covered"
                         f")"
                     )
                 else:
@@ -1120,10 +1144,11 @@ def run_gold_scoring(
         scores_df = scorer.score_all_clips(limit=limit)
         gold_results = scorer.build_gold_subset(scores_df, top_pct=top_pct)
 
-        # Score distribution summary
+        # Score distribution summary (over the sensor-covered difficulty tier)
         stats = (
             scores_df
             .filter(F.col("difficulty_score") >= 0)
+            .filter(F.col("sensor_covered"))
             .agg(
                 F.min("difficulty_score").alias("min"),
                 F.max("difficulty_score").alias("max"),

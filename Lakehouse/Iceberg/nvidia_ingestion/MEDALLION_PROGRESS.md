@@ -1056,6 +1056,20 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    weighting (pedestrians) + multi-frame aggregation, and/or trustworthy boxes
    from `obstacle.offline`. This is the first signal to pass the validity battery
    — the basis for a real scene-grounded driving-difficulty score.
+
+   **Strengthening attempt (`bevfusion/agent_conflict_test2.py`, 452 clips,
+   202 OOD): zero-shot ceiling ~0.63.** Multi-frame aggregation (0.3/0.5/0.7)
+   lifted the simple position+confidence metric to **AUC 0.633** (+0.028).
+   But adding **class-weighting (VRU) + TTC** *lowered* it (AUC 0.607) — an
+   informative negative: BEVFusion's zero-shot **class and velocity** outputs
+   don't transfer to PhysicalAI, so weighting by them adds noise; only box
+   **positions + confidence** are reliable zero-shot. Negative control still
+   strongly passes (rich real 0.679 → blank 0.011). Conclusion: the
+   agent-conflict construct is valid but **plateaus at ~0.63 on zero-shot
+   boxes**. The levers that should help (VRU-weighting, TTC) need reliable
+   class/velocity/tracks → **`obstacle.offline`** (the dataset's own labels) is
+   the justified next investment to push past the ceiling; otherwise ship the
+   simple+multi-frame metric (0.633, validated) as the production driving signal.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

@@ -1093,6 +1093,15 @@ is non-trivial, which is what breaks the ego-kinematics confound.
    needs a *composite* difficulty (agent-conflict + other validated facets), not
    better boxes. Recommended: ship agent-conflict (cheap BEVFusion boxes) as one
    validated, modest sub-score; treat difficulty as a multi-facet composite.
+
+   **SHIPPED 2026-06-23.** agent-conflict added as a production Gold sub-score
+   (`planning/conflict_runner.py`, GPU-free, obstacle.offline source → simple
+   forward-zone load, rank-normalized over 31,812 clips → `.conflict/`;
+   `edge_case_scorer._load_conflict_scores` + `conflict` dim, weight 0.20). Gold
+   re-scored = **35,055 clips** (vs 35,376 metadata+perception-only; ~321 shifted
+   as the new agent axis reshuffles the cohort). Detachable per the usual contract
+   (delete runner + loader hook + weight). Full synthesis:
+   `PROGRESS_REPORT_2026-06.md`.
 2. **+ map-free PDMS** (the NAVSIM-style win) — bicycle unroll + collision/TTC/
    progress/comfort using BEVFusion boxes. Cheap geometry; adds meaning over (1)
    almost for free once trajectory+boxes exist.

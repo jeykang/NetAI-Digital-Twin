@@ -134,6 +134,9 @@ _SCENE_WEIGHTS = {
     "planning": 0.15,          # driving-difficulty module (open-loop planner);
                                # modest weight — overlaps ego_dynamics (Spearman
                                # ~0.69, §13 gate), so kept conservative + tunable
+    "conflict": 0.20,          # agent-interaction difficulty (obstacle.offline);
+                               # validated facet (OOD AUC ~0.65), genuinely new
+                               # axis (no agent info elsewhere). Modest, tunable.
 }
 
 # Time-of-day difficulty (hour_of_day from data_collection)
@@ -284,6 +287,7 @@ def compute_scene_score(
     ego_score: Optional[float] = None,
     perception_score: Optional[float] = None,
     planning_score: Optional[float] = None,
+    conflict_score: Optional[float] = None,
 ) -> Tuple[float, dict]:
     """Compute composite scene complexity score.
 
@@ -329,6 +333,13 @@ def compute_scene_score(
         active.append("planning")
     else:
         sub["planning"] = None
+
+    # Optional agent-interaction (conflict) signal (.conflict/ file-drop).
+    if conflict_score is not None:
+        sub["conflict"] = float(max(0.0, min(1.0, conflict_score)))
+        active.append("conflict")
+    else:
+        sub["conflict"] = None
 
     active_w = sum(_SCENE_WEIGHTS[k] for k in active)
     score = sum(sub[k] * _SCENE_WEIGHTS[k] / active_w for k in active)
@@ -600,6 +611,31 @@ def _load_planning_scores(spark, source_path: str) -> Dict[str, float]:
     return out
 
 
+def _load_conflict_scores(spark, source_path: str) -> Dict[str, float]:
+    """Load per-clip agent-interaction (conflict) scores (.conflict/ file-drop).
+
+    Reads `<source>/.conflict/*.parquet` (clip_id, conflict_score) via Spark.
+    Empty dict if the conflict runner hasn't run — the `conflict` dimension is
+    then dropped by compute_scene_score, so the sub-score is fully detachable.
+    """
+    cdir = os.path.join(source_path, ".conflict")
+    out: Dict[str, float] = {}
+    if not os.path.isdir(cdir):
+        return out
+    paths = [f"file://{os.path.join(cdir, f)}"
+             for f in sorted(os.listdir(cdir)) if f.endswith(".parquet")]
+    if not paths:
+        return out
+    try:
+        df = spark.read.parquet(*paths).select("clip_id", "conflict_score")
+        for r in df.collect():
+            if r["conflict_score"] is not None:
+                out[r["clip_id"]] = float(r["conflict_score"])
+    except Exception as e:
+        log.warning("Failed to load conflict scores: %s", e)
+    return out
+
+
 class EdgeCaseScorer:
     """Orchestrates clip scoring and Gold subset selection."""
 
@@ -745,6 +781,14 @@ class EdgeCaseScorer:
         else:
             print("  No planning scores found; scoring will skip that dimension")
 
+        conflict_scores: dict = _load_conflict_scores(
+            self.spark, self.config.nvidia.source_path
+        )
+        if conflict_scores:
+            print(f"  Loaded conflict scores for {len(conflict_scores):,} clips")
+        else:
+            print("  No conflict scores found; scoring will skip that dimension")
+
         scores = []
         t0 = time.time()
         for i, row in enumerate(rows):
@@ -764,6 +808,7 @@ class EdgeCaseScorer:
                 ego_score=ego_scores.get(clip_id),
                 perception_score=perception_scores.get(clip_id),
                 planning_score=planning_scores.get(clip_id),
+                conflict_score=conflict_scores.get(clip_id),
             )
 
             detail = json.dumps({

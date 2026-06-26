@@ -62,3 +62,27 @@ control (shuffled-frame, not just blank), and an independent validation anchor
 - `reasoned_gate.py` — reason-then-extract (VQA) gate.
 - `coc_gate.py` — native CoC-rollout gate (+ minADE).
 - Env/weights/vendored repo are gitignored (`alpamayo1.5/`, `*venv*`).
+
+## Addendum — "model struggle" signals (2026-06-26)
+
+Followup hypothesis: instead of asking Alpamayo to *judge* difficulty, score clips
+by *how hard a time the model had* — i.e. uncertainty in the VLA pipeline (the VLM
+feeds a diffusion action expert). Tested 3 internal-struggle signals
+(`struggle_gate.py`, N=40, K=3 trajectory samples):
+
+| Signal | OOD AUC | ρ vs conflict | neg-control |
+|---|---|---|---|
+| trajectory spread (action-expert multimodality) | 0.448 | −0.295 | moved −10.8 (20/20) |
+| reasoning entropy (VLM generation) | 0.501 | +0.05 | moved +0.31 |
+| minADE (prediction error) | 0.335 | −0.13 | — |
+
+**Result: closed.** All three are anti-aligned or null vs human-hard, and spread
+is *negatively* correlated with the validated conflict signal. The decisive
+insight is the negative control: Alpamayo's trajectory spread **does** respond to
+the scene (moves a lot on blanked frames — unlike DiffusionDrive's scene-blind
+`mode_spread`), so the native model fixed scene-grounding. But it measures the
+**inverse construct** — trajectory spread = the controller's *freedom*, which is
+highest on easy/open/empty scenes and lowest on constrained/hard ones. So **model
+uncertainty ≈ scene openness ≈ inverse of difficulty**, which explains why the
+whole family (mode_spread → minADE → action-expert spread) fails. Not a transfer
+problem; a construct problem. The "struggle" framing is conclusively shelved.

@@ -80,3 +80,5 @@ yolov8n.pt
 polaris_pg_data/
 nvidia_ingestion/_ood_clips.txt
 nvidia_ingestion/_ood_clusters.csv
+planning/alpamayo/alpamayo1.5/
+planning/alpamayo/*venv*/

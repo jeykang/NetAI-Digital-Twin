@@ -45,6 +45,20 @@ but its **final product is camera-only** (for scalability). So:
    it under-rates the very clips that matter. Re-point it to a camera-only detector
    (YOLO-2D now; camera-3D — fcos3d/pgd, in the image — for closer 3D alignment).
 
+## Camera-only perceptual axis — built + analyzed (2026-06-27)
+`planning/camera_perception_runner.py` (YOLO-2D front-cam, 33,767 clips) →
+`.camera_perception/camera_perception.parquet`. `analyze_camera_perception.py`:
+- vs lidar-fused (3,338 overlap): Spearman **0.739** (agree on real clips — clutter is
+  hard for both), divergence (camera-hard/fused-easy) only **2.2%** → the real data is
+  overwhelmingly **camera-easy**. That is the strongest case FOR augmentation: the
+  camera-adverse cases the camera-only endgame needs barely exist → must be generated.
+- Coverage: camera 33,767 vs fused 3,338 (10×).
+- **Empty-scene confound:** 25% of clips have 0 camera detections; these have low agent
+  load (conflict_rank 0.21 vs 0.59) → EMPTY, not hard. Raw `camera_low_conf` over-flags
+  them. **Fix = agent-gating** (count camera difficulty only where obstacle.offline says
+  agents are present): camera-hard 27.6%→**11.1%**, conflict_rank 0.22→0.35, OOD
+  0.43→0.58, removes 5,218 false positives. This gated axis is the one to integrate.
+
 ## Recommendation (updated)
 PURSUE it. Next steps:
 1. Re-point the perceptual difficulty axis to **camera-only** perception — run a

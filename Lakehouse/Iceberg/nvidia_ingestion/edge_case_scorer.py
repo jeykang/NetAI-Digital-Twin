@@ -590,13 +590,30 @@ def _load_perception_scores(spark, source_path: str) -> Dict[str, float]:
 
 
 def _load_low_conf_scores(spark, source_path: str) -> Dict[str, float]:
-    """Perception-degradation signal: 1 − mean_max_conf per clip from the
-    BEVFusion stats (`<source>/.perception/*.parquet`). High = the detector is
-    uncertain (e.g. low light / adverse conditions) = perceptually hard. Feeds
-    the perceptual axis of compute_scene_score. Empty dict if none exist.
+    """Perception-degradation signal feeding the perceptual axis. High = the
+    detector is uncertain (low light / adverse conditions) = perceptually hard.
+
+    Prefers the CAMERA-ONLY agent-gated axis (`<source>/.camera_perception/
+    camera_gated.parquet`, 1 − front-cam YOLO max-conf, gated to scenes with
+    agents present) when available — this matches the consumer's camera-only
+    final product, which the lidar-FUSED BEVFusion signal is blind to (lidar
+    masks camera degradation; see cosmos_augmentation/FINDINGS.md). Falls back
+    to the fused BEVFusion stats (`<source>/.perception/*.parquet`) otherwise.
+    Empty dict if neither exists.
     """
-    perc_dir = os.path.join(source_path, ".perception")
     out: Dict[str, float] = {}
+    cam_gated = os.path.join(source_path, ".camera_perception", "camera_gated.parquet")
+    if os.path.isfile(cam_gated):
+        try:
+            df = spark.read.parquet(f"file://{cam_gated}").select("clip_id", "low_conf")
+            for r in df.collect():
+                if r["low_conf"] is not None:
+                    out[r["clip_id"]] = float(max(0.0, min(1.0, r["low_conf"])))
+            log.info("low_conf axis = camera-only gated (%d clips)", len(out))
+            return out
+        except Exception as e:
+            log.warning("Failed to load camera_gated scores, falling back to fused: %s", e)
+    perc_dir = os.path.join(source_path, ".perception")
     if not os.path.isdir(perc_dir):
         return out
     paths = [f"file://{os.path.join(perc_dir, f)}"

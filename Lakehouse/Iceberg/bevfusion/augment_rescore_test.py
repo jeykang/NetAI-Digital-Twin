@@ -21,6 +21,16 @@ ROOT = "/mnt/netai-e2e/nvidia-physicalai-av-subset"
 DEV = "cuda:0"
 COND = sys.argv[1] if len(sys.argv) > 1 else "night"
 K = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+CAMERA_ONLY = len(sys.argv) > 3 and sys.argv[3] == "1"   # suppress lidar -> camera-reliant proxy
+
+
+def _scatter_cloud():
+    """Object-free scattered ground points: model gets no useful lidar -> must use
+    the camera (rough camera-only proxy for the camera-only downstream target)."""
+    rs = np.random.RandomState(0); p = np.zeros((4000, 5), np.float32)
+    p[:, 0] = rs.uniform(-50, 50, 4000); p[:, 1] = rs.uniform(-50, 50, 4000)
+    p[:, 2] = rs.uniform(-3.0, -1.5, 4000)   # near ground, no objects
+    return p
 
 
 def cam_frac(mp4, frac=0.5):
@@ -58,7 +68,7 @@ def cam_for(cid, sensor):
 
 
 def main():
-    print(f"loading BEVFusion; condition={COND}", flush=True)
+    print(f"loading BEVFusion; condition={COND} camera_only={CAMERA_ONLY}", flush=True)
     model = init_model(CFG, CKPT, device=DEV); model.eval()
     lid = sorted(glob.glob(f"{ROOT}/lidar/lidar_top_360fov/*/*.lidar_top_360fov.parquet"))
     clips = []
@@ -72,7 +82,8 @@ def main():
     dc, dn = [], []
     for cid, lp in clips:
         try:
-            pts = lidar_frac(lp); imgs = [cam_for(cid, s) for s in CAM_ORDER]
+            pts = _scatter_cloud() if CAMERA_ONLY else lidar_frac(lp)
+            imgs = [cam_for(cid, s) for s in CAM_ORDER]
             co, no = conf_n(boxes(model, pts, imgs))
             cd, nd = conf_n(boxes(model, pts, transforms.apply(imgs, COND)))
             dc.append(cd - co); dn.append(nd - no)

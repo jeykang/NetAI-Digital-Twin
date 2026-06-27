@@ -18,29 +18,40 @@ have, geometry preserved) + `cheap_validate.py`. Produces measurable perceptual
 degradation: night −85% brightness / −70% contrast; rain/fog −50% / −66%
 contrast & edges. Composites at /tmp/aug_samples (crude but recognizable).
 
-## The decisive negative finding — perceptual augmentation does NOT register
-`bevfusion/augment_rescore_test.py`: ran BEVFusion on 6 clips, original camera vs
-night-degraded camera, **lidar unchanged** (exactly what a Cosmos camera transform
-does). Result: **5/6 clips Δconf ≈ 0** (−0.006..+0.003); mean +0.055 only because
-one clip spuriously gained a detection. **Camera degradation does not lower the
-fused BEVFusion confidence** — clean lidar dominates and masks it.
+## Modality decides everything — measured both ways
+Same night transform, two perception yardsticks:
 
-Implication: our perceptual difficulty axis (and a lidar-fused AV stack generally)
-is **night/weather-robust because of lidar**. So generating night/rain/fog variants
-of easy clips would NOT make them measurably harder for this scorer/stack — the
-perceptual-augmentation premise breaks for the lidar-fused setting. (Behavioral
-augmentation — inserting agents — was separately judged hard-to-synthesize +
-label-generating, shelved.)
+| condition | lidar-fused BEVFusion Δconf | camera-only YOLO Δconf | cam-only Δndet |
+|-----------|----------------------------|------------------------|----------------|
+| night     | ≈0 (+0.001, 5/6 clips ~0)  | **−0.427**             | −2.12          |
+| rain      | —                          | **−0.218**             | −1.00          |
+| fog       | —                          | −0.046                 | −0.62          |
 
-## When augmentation WOULD be worth it
-If the downstream consumer is a **camera-only / camera-heavy** model, night/weather
-genuinely degrades it → perceptual augmentation is valuable, paired with a
-**camera-only difficulty axis** (not the fused one). Value is contingent on the
-downstream model's modality, which isn't pinned down.
+- `bevfusion/augment_rescore_test.py` (fused): camera degradation does NOT lower
+  confidence — **clean lidar masks it**; a lidar-fused stack is night/weather-robust.
+  (Suppressing lidar doesn't make BEVFusion a camera-only proxy — it collapses to 0
+  detections; it's intrinsically fused.)
+- `cosmos_augmentation/camera_only_probe.py` (YOLO, camera-only): night **collapses**
+  perception (most clips lose all detections, conf→0); rain strong, fog mild.
 
-## Recommendation
-Do NOT commit the Cosmos/cluster effort for the current lidar-fused setting; the
-cheap probe shows the variants wouldn't be harder. Architecture is ready if revisited
-(swap `transforms.py` → Cosmos backend behind the same interface; Cosmos-Evaluator as
-realness gate; difficulty scorer as targeting/verification) — but only once there's a
-camera-only downstream need to justify it.
+## Consumer is camera-only → augmentation is RESCUED
+Confirmed (2026-06-27): the downstream consumer's stack is currently lidar-assisted
+but its **final product is camera-only** (for scalability). So:
+1. **Perceptual augmentation is valuable** — night/rain variants of easy clips are
+   genuinely much harder for the camera-only model (−0.43 conf on night). Cosmos
+   camera transforms target exactly this.
+2. **The difficulty scorer's perceptual axis must be camera-only**, not lidar-fused.
+   The current fused axis is *blind* to the difficulty the final product will face —
+   it under-rates the very clips that matter. Re-point it to a camera-only detector
+   (YOLO-2D now; camera-3D — fcos3d/pgd, in the image — for closer 3D alignment).
+
+## Recommendation (updated)
+PURSUE it. Next steps:
+1. Re-point the perceptual difficulty axis to **camera-only** perception — run a
+   camera detector on the cohort → `camera_low_conf` axis → fold into the union
+   (behavioral axis is modality-agnostic, stays).
+2. With a camera-only difficulty signal, the augmentation loop is coherent
+   (Cosmos camera transform → camera-only re-score confirms harder → keep) and the
+   A100-cluster Cosmos effort is justified for the camera-only endgame.
+3. Architecture unchanged: swap `transforms.py` → Cosmos backend behind the same
+   interface; Cosmos-Evaluator as realness gate; difficulty scorer as targeting.

@@ -82,3 +82,6 @@ nvidia_ingestion/_ood_clips.txt
 nvidia_ingestion/_ood_clusters.csv
 planning/alpamayo/alpamayo1.5/
 planning/alpamayo/*venv*/
+
+# API keys / secrets (never commit)
+.secrets/

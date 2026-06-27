@@ -86,3 +86,36 @@ highest on easy/open/empty scenes and lowest on constrained/hard ones. So **mode
 uncertainty ≈ scene openness ≈ inverse of difficulty**, which explains why the
 whole family (mode_spread → minADE → action-expert spread) fails. Not a transfer
 problem; a construct problem. The "struggle" framing is conclusively shelved.
+
+## Addendum 2 — consequential-failure ("model struggle done right") (2026-06-27)
+
+Final, strongest version of "score clips by how hard a time the model had": does
+ALPAMAYO'S planned trajectory come unsafe vs the recorded agents (NAVSIM-PDMS over
+a native planner's actual output) — `pdms_planner_gate.py`, `mistake_confirm.py`.
+Three signals: collision severity, path proximity, and **`mistake`** = how much
+closer Alpamayo's path gets to an agent than the human path did (the consequential
+model-error part, with scene-density cancelled out).
+
+**n=40 gate looked like a breakthrough**: `mistake` OOD AUC 0.706 (> conflict 0.651)
+AND ρ=+0.05 with conflict (independent axis). **N=200 confirmation killed it:**
+
+| | n=40 gate | N=200 confirm |
+|---|---|---|
+| mistake OOD AUC | 0.706 | **0.535** |
+| ρ vs conflict | +0.05 | −0.06 |
+| neg-control real AUC (first 40) | — | 0.706 |
+| neg-control BLANK AUC (first 40) | — | **0.609** |
+| determinism \|Δ\| | — | 0.000 |
+
+Two failures: (1) **small-sample luck** — AUC 0.706→0.535 at scale (barely above
+chance, below conflict); (2) **negative control partially fails** — blanked frames
+still give 0.609, so most of the signal isn't scene-grounded, and real-mean (2.10) >
+blank-mean (1.86) means scene-informed planning gets *closer* to agents (normal
+interactive driving, not error). Construct is muddy + weak. **Closed.**
+
+This is the 4th confirmation of the agent-interaction ~0.65 ceiling (static proximity
+/ feasibility sim / planner collision / planner deviation all land there). It's a
+construct+label-set property, not a missing metric. The validity battery (larger-N +
+neg-control) caught an appealing n=40 false positive — same discipline that caught
+mode_spread. Driving-agent difficulty scoring is conclusively exhausted; production
+stays conflict + darkness (perception-confidence IS the real "model struggle" leg).

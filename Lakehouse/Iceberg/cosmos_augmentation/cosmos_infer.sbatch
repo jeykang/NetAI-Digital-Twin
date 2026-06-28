@@ -23,5 +23,5 @@ singularity exec --nv -B $H:$H \
     --controlnet_specs $H/aug_test/night_depth_spec.json \
     --video_save_folder $H/aug_test/outputs \
     --num_gpus 4 \
-    --offload_text_encoder_model --offload_guardrail_models"
+    --offload_text_encoder_model --disable_guardrail"
 echo ">>> COSMOS INFER DONE"

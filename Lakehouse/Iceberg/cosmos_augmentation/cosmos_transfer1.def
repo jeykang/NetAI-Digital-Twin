@@ -13,7 +13,7 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
     add-apt-repository -y ppa:deadsnakes/ppa
     apt-get update && apt-get install -y \
         python3.12 python3.12-dev python3.12-venv \
-        git wget curl ffmpeg tree vim build-essential \
+        git wget curl ffmpeg tree vim build-essential libmagic1 \
         libglib2.0-0 libgl1-mesa-glx libsm6 libxext6 libxrender-dev libgomp1 \
         && rm -rf /var/lib/apt/lists/*
     ln -sf /usr/bin/python3.12 /usr/local/bin/python
@@ -21,13 +21,20 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
     ln -sf /lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/libcuda.so 2>/dev/null || true
     wget -q https://bootstrap.pypa.io/get-pip.py && python get-pip.py && rm get-pip.py
     python -m pip install --upgrade pip setuptools wheel
+    # Pre-empt distutils-installed base packages pip can't uninstall (blinker/PyYAML);
+    # --ignore-installed converts them to pip-managed so later dep upgrades succeed.
+    python -m pip install --ignore-installed --no-cache-dir blinker PyYAML
 
     # cosmos repo (for requirements.txt during build; runtime code comes from /scratch)
     git clone --depth 1 https://github.com/nvidia-cosmos/cosmos-transfer1.git /opt/cosmos-transfer1
     cd /opt/cosmos-transfer1
 
-    # INSTALL.md sequence (exact order)
-    pip install --no-cache-dir -r requirements.txt
+    # Container build uses requirements_docker.txt (the complete pip manifest — the
+    # conda requirements.txt offloads ~15 deps like diffusers/opencv/megatron-core to
+    # conda). Explicit cu128 torch wheels below re-pin over anything it pulls.
+    pip install --no-cache-dir -r requirements_docker.txt
+    # Meta SAM2 (seg preprocessor) — exact Dockerfile incantation (no build isolation/deps)
+    pip install -v --upgrade --no-build-isolation --no-dependencies sam2==1.1.0
     pip install --no-cache-dir "https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl"
     pip install --no-cache-dir vllm==0.9.2
     pip install --no-cache-dir decord==0.6.0
@@ -38,6 +45,10 @@ From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
     pip install --no-cache-dir "$B/transformer_engine-1.13.0+cu128.torch271-cp312-cp312-linux_x86_64.whl"
     pip install --no-cache-dir "$B/torch-2.7.1+cu128-cp312-cp312-manylinux_2_28_x86_64.whl"
     pip install --no-cache-dir "$B/torchvision-0.22.1+cu128-cp312-cp312-manylinux_2_28_x86_64.whl"
+
+    # Re-pin transformers to the cosmos-required version (vllm/others pull a newer 5.x
+    # that breaks AutoImageProcessor/depth_anything) + add timm/protobuf (soft deps).
+    pip install --no-cache-dir "transformers==4.49.0" timm protobuf
 
     # Transformer-engine include symlink patch (INSTALL.md)
     SP=$(python -c "import site; print(site.getsitepackages()[0])")

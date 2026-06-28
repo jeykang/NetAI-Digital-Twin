@@ -14,14 +14,14 @@ set -eo pipefail
 H=/scratch/autodr_test
 echo "[job] node=$(hostname)"; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1 || true
 singularity exec --nv -B $H:$H \
-  --env PYTHONPATH=$H/cosmos-transfer1,HF_HOME=$H/hf_cache \
+  --env PYTHONPATH=$H/cosmos-transfer1,HF_HOME=$H/hf_cache,PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   $H/cosmos_transfer1.sif \
   bash -c "cd $H/cosmos-transfer1 && torchrun --nproc_per_node=4 --nnodes=1 --node_rank=0 \
     cosmos_transfer1/diffusion/inference/transfer.py \
     --checkpoint_dir $H/cosmos-transfer1/checkpoints \
-    --input_video_path $H/aug_test/inputs/02fd3a17.mp4 \
+    --input_video_path $H/aug_test/inputs/02fd3a17_121.mp4 \
     --controlnet_specs $H/aug_test/night_depth_spec.json \
     --video_save_folder $H/aug_test/outputs \
     --num_gpus 4 \
-    --offload_text_encoder_model --disable_guardrail"
+    --offload_text_encoder_model --offload_diffusion_transformer --disable_guardrail"
 echo ">>> COSMOS INFER DONE"

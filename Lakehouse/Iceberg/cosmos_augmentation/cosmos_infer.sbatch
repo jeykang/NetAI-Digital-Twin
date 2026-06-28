@@ -12,16 +12,16 @@
 #SBATCH --error=/scratch/autodr_test/aug_test/slurm_%j.err
 set -eo pipefail
 H=/scratch/autodr_test
-echo "[job] node=$(hostname)"; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
+echo "[job] node=$(hostname)"; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1 || true
 singularity exec --nv -B $H:$H \
   --env PYTHONPATH=$H/cosmos-transfer1,HF_HOME=$H/hf_cache \
   $H/cosmos_transfer1.sif \
-  torchrun --nproc_per_node=4 --nnodes=1 --node_rank=0 \
+  bash -c "cd $H/cosmos-transfer1 && torchrun --nproc_per_node=4 --nnodes=1 --node_rank=0 \
     cosmos_transfer1/diffusion/inference/transfer.py \
     --checkpoint_dir $H/cosmos-transfer1/checkpoints \
     --input_video_path $H/aug_test/inputs/02fd3a17.mp4 \
     --controlnet_specs $H/aug_test/night_depth_spec.json \
     --video_save_folder $H/aug_test/outputs \
     --num_gpus 4 \
-    --offload_text_encoder_model --offload_guardrail_models
+    --offload_text_encoder_model --offload_guardrail_models"
 echo ">>> COSMOS INFER DONE"

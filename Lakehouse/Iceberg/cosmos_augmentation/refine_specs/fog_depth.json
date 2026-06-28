@@ -1,0 +1,7 @@
+{
+  "prompt": "The video is captured from a camera mounted on a car driving through dense fog. Visibility is severely reduced; the road ahead fades into a thick gray-white haze within a short distance. Distant vehicles, buildings, and trees are barely visible as faint silhouettes emerging from the fog. Headlights of oncoming cars appear as diffuse glowing halos. The scene is washed out, low-contrast, and muted.",
+  "input_video_path": "/scratch/autodr_test/aug_test/inputs/02fd3a17_121.mp4",
+  "depth": {
+    "control_weight": 1.0
+  }
+}

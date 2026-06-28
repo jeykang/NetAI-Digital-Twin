@@ -1,0 +1,58 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+
+# Cosmos-Transfer1 inference environment (built locally, transferred to the A100
+# cluster — login node can't compile/pull images). Env-only: the cosmos repo code,
+# my augmentation driver, checkpoints, and clip data live on /scratch and are
+# bind-mounted at runtime (PYTHONPATH set there), so iterating doesn't need a rebuild.
+# Replicates cosmos-transfer1 INSTALL.md (Python 3.12 + cu128 / torch 2.7.1 wheels).
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y software-properties-common
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update && apt-get install -y \
+        python3.12 python3.12-dev python3.12-venv \
+        git wget curl ffmpeg tree vim build-essential \
+        libglib2.0-0 libgl1-mesa-glx libsm6 libxext6 libxrender-dev libgomp1 \
+        && rm -rf /var/lib/apt/lists/*
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python3
+    ln -sf /lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/libcuda.so 2>/dev/null || true
+    wget -q https://bootstrap.pypa.io/get-pip.py && python get-pip.py && rm get-pip.py
+    python -m pip install --upgrade pip setuptools wheel
+
+    # cosmos repo (for requirements.txt during build; runtime code comes from /scratch)
+    git clone --depth 1 https://github.com/nvidia-cosmos/cosmos-transfer1.git /opt/cosmos-transfer1
+    cd /opt/cosmos-transfer1
+
+    # INSTALL.md sequence (exact order)
+    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir "https://download.pytorch.org/whl/cu128/flashinfer/flashinfer_python-0.2.5%2Bcu128torch2.7-cp38-abi3-linux_x86_64.whl"
+    pip install --no-cache-dir vllm==0.9.2
+    pip install --no-cache-dir decord==0.6.0
+    B=https://github.com/nvidia-cosmos/cosmos-dependencies/releases/download/v1.1.0
+    pip install --no-cache-dir "$B/apex-0.1+cu128.torch271-cp312-cp312-linux_x86_64.whl"
+    pip install --no-cache-dir "$B/flash_attn-2.6.3+cu128.torch271-cp312-cp312-linux_x86_64.whl"
+    pip install --no-cache-dir "$B/natten-0.21.0+cu128.torch271-cp312-cp312-linux_x86_64.whl"
+    pip install --no-cache-dir "$B/transformer_engine-1.13.0+cu128.torch271-cp312-cp312-linux_x86_64.whl"
+    pip install --no-cache-dir "$B/torch-2.7.1+cu128-cp312-cp312-manylinux_2_28_x86_64.whl"
+    pip install --no-cache-dir "$B/torchvision-0.22.1+cu128-cp312-cp312-manylinux_2_28_x86_64.whl"
+
+    # Transformer-engine include symlink patch (INSTALL.md)
+    SP=$(python -c "import site; print(site.getsitepackages()[0])")
+    mkdir -p /usr/local/include/python3.12
+    ln -sf $SP/nvidia/*/include/* /usr/local/include/ 2>/dev/null || true
+    ln -sf $SP/nvidia/*/include/* /usr/local/include/python3.12/ 2>/dev/null || true
+
+%environment
+    export VLLM_ATTENTION_BACKEND=FLASHINFER
+    export PYTHONPATH=/scratch/autodr_test/cosmos-transfer1:/opt/cosmos-transfer1
+    export HF_HOME=/scratch/autodr_test/hf_cache
+
+%runscript
+    exec python "$@"
+
+%labels
+    purpose cosmos-transfer1-inference
+    base cuda12.8.1-cudnn-devel-ubuntu22.04

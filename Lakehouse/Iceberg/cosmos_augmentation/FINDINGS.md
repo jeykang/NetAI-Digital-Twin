@@ -86,3 +86,17 @@ Pipeline: cluster.py (SSH/SFTP), cosmos_transfer1.def, cluster_download_weights.
 patch_transfer_guardrail.py, cosmos_infer.sbatch, night_depth_spec.json. Cluster: 1 node
 at a time (pod09; pod17 reserved for user's other project). Per-clip ~7min on 4 GPUs.
 Next: batch over easy Gold-adjacent clips (single node, sequential).
+
+## C refinement (2026-06-28) — recipe chosen
+Control x condition matrix on one clip (cosmos_refine.sbatch, single node). YOLO
+difficulty vs day (frames 30/60/90):
+  night_depth  Δconf -0.375  Δndet -0.67   (biggest confidence collapse)
+  night_edge   Δconf -0.246  Δndet +0.33   (edge retains daytime -> weakest; magenta cast)
+  rain_depth   Δconf -0.260  Δndet -1.33
+  fog_depth    Δconf -0.183  Δndet -1.67   (most agents vanish)
+  night_multi  FAILED (OOM — 3 controlnets on 40GB)
+Verdict: **depth control** (lighting-invariant -> full relight + best geometry
+preservation; edge clings to daytime + odd color). **Mix night/rain/fog** — different
+failure modes (night=low conf, fog/rain=agents disappear) -> diverse hard augmentations.
+Drop edge + multi. Open refinement: chunk full-length clips (only 121-frame tested);
+optional prompt-upsampler. Recipe ready for batch (depth + mixed conditions, 1 node).

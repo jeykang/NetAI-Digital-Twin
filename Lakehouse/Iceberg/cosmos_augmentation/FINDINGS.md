@@ -69,3 +69,20 @@ PURSUE it. Next steps:
    A100-cluster Cosmos effort is justified for the camera-only endgame.
 3. Architecture unchanged: swap `transforms.py` → Cosmos backend behind the same
    interface; Cosmos-Evaluator as realness gate; difficulty scorer as targeting.
+
+## C VALIDATED END-TO-END (2026-06-28) — Cosmos augmentation works
+Built Cosmos-Transfer1 SIF locally (apptainer fakeroot) → transferred to the A100
+cluster (login node can't compile/pull images) → weights (113GB+gated 7B) → ran
+depth-controlled day→night on an easy daytime clip (4× A100-40GB, pod09, guardrail
+disabled, DiT offloaded, 121-frame segment, expandable_segments).
+Result (cosmos_augmentation/cosmos_infer.sbatch + night_depth_spec.json):
+- Photorealistic night render (streetlights, signals, headlights, wet-road reflections).
+- Geometry + agent positions PRESERVED (depth control) → obstacle.offline labels + ego
+  stay valid → labels transfer for free.
+- HARDER for camera-only perception: YOLO day→night mean Δconf -0.22, Δndet -1.67
+  (frame 90: 3 detections → 0). Confirms the augmented clip is genuinely harder for the
+  camera-only endgame — the whole pipeline goal.
+Pipeline: cluster.py (SSH/SFTP), cosmos_transfer1.def, cluster_download_weights.sh,
+patch_transfer_guardrail.py, cosmos_infer.sbatch, night_depth_spec.json. Cluster: 1 node
+at a time (pod09; pod17 reserved for user's other project). Per-clip ~7min on 4 GPUs.
+Next: batch over easy Gold-adjacent clips (single node, sequential).

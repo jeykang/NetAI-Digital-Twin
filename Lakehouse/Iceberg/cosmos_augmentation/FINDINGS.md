@@ -100,3 +100,12 @@ preservation; edge clings to daytime + odd color). **Mix night/rain/fog** — di
 failure modes (night=low conf, fog/rain=agents disappear) -> diverse hard augmentations.
 Drop edge + multi. Open refinement: chunk full-length clips (only 121-frame tested);
 optional prompt-upsampler. Recipe ready for batch (depth + mixed conditions, 1 node).
+
+## Dual Gold scores (2026-06-29) — camera-only + lidar-fused, per user request
+Rather than camera replacing fused, clip_scores now emits BOTH:
+- difficulty_camera (this consumer's camera-only endgame) — materializes Gold views (default)
+- difficulty_lidar (general-purpose lidar-fused stack) — derivable from clip_scores
+Each = behavioral noisy-OR its modality's rank-normed perceptual axis; behavioral shared.
+Full re-score (top 10% of 31,737): camera Gold 3,174 / lidar Gold 3,176; overlap 2,830,
+~374 unique to EACH tier (Jaccard 0.79) — both add real value. `--gold-axis camera|lidar`
+picks which materializes views. (Spark driver OOM on the dual write -> use --driver-memory 12g.)

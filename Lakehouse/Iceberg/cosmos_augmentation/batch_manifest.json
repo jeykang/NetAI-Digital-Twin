@@ -1,74 +1,92 @@
 [
   {
+    "clip": "2daf9698-fbb7-45a3-8842-b249dc46110d",
+    "short": "2daf9698",
+    "behavioral": 0.0,
+    "window_start": 0,
+    "fps": 30.0,
+    "window_agents": 4,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0003/2daf9698-fbb7-45a3-8842-b249dc46110d.camera_front_wide_120fov.mp4",
+    "cond": "night"
+  },
+  {
+    "clip": "31856298-2960-4d45-a906-1b489066c452",
+    "short": "31856298",
+    "behavioral": 0.001,
+    "window_start": 434,
+    "fps": 30.0,
+    "window_agents": 3,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0003/31856298-2960-4d45-a906-1b489066c452.camera_front_wide_120fov.mp4",
+    "cond": "rain"
+  },
+  {
     "clip": "ad2948d2-4bbe-4c3d-8b0f-97b99fa973f7",
     "short": "ad2948d2",
-    "cond": "night",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0003/ad2948d2-4bbe-4c3d-8b0f-97b99fa973f7.camera_front_wide_120fov.mp4",
     "behavioral": 0.001,
-    "cam_conf": 0.718
+    "window_start": 484,
+    "fps": 30.0,
+    "window_agents": 4,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0003/ad2948d2-4bbe-4c3d-8b0f-97b99fa973f7.camera_front_wide_120fov.mp4",
+    "cond": "fog"
+  },
+  {
+    "clip": "aa56971d-ac5e-4d66-9b99-f3f14ac98894",
+    "short": "aa56971d",
+    "behavioral": 0.002,
+    "window_start": 159,
+    "fps": 30.0,
+    "window_agents": 3,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0010/aa56971d-ac5e-4d66-9b99-f3f14ac98894.camera_front_wide_120fov.mp4",
+    "cond": "night"
+  },
+  {
+    "clip": "558c9557-181f-479e-87c9-ea2cf3471a8f",
+    "short": "558c9557",
+    "behavioral": 0.004,
+    "window_start": 484,
+    "fps": 30.0,
+    "window_agents": 2,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0035/558c9557-181f-479e-87c9-ea2cf3471a8f.camera_front_wide_120fov.mp4",
+    "cond": "rain"
+  },
+  {
+    "clip": "f7c70bee-9847-45fa-9094-68e70ff886c4",
+    "short": "f7c70bee",
+    "behavioral": 0.004,
+    "window_start": 484,
+    "fps": 30.0,
+    "window_agents": 2,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0037/f7c70bee-9847-45fa-9094-68e70ff886c4.camera_front_wide_120fov.mp4",
+    "cond": "fog"
+  },
+  {
+    "clip": "3f1e2632-2e9d-4c23-8eaa-8db3cddb5444",
+    "short": "3f1e2632",
+    "behavioral": 0.005,
+    "window_start": 379,
+    "fps": 30.0,
+    "window_agents": 4,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0054/3f1e2632-2e9d-4c23-8eaa-8db3cddb5444.camera_front_wide_120fov.mp4",
+    "cond": "night"
   },
   {
     "clip": "f0218bff-366e-400c-bf1a-41afddb32f55",
     "short": "f0218bff",
-    "cond": "rain",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0065/f0218bff-366e-400c-bf1a-41afddb32f55.camera_front_wide_120fov.mp4",
     "behavioral": 0.006,
-    "cam_conf": 0.8
+    "window_start": 269,
+    "fps": 30.0,
+    "window_agents": 4,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0065/f0218bff-366e-400c-bf1a-41afddb32f55.camera_front_wide_120fov.mp4",
+    "cond": "rain"
   },
   {
-    "clip": "2fe80ebc-6e05-482e-a5f6-5e90723ef167",
-    "short": "2fe80ebc",
-    "cond": "fog",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0054/2fe80ebc-6e05-482e-a5f6-5e90723ef167.camera_front_wide_120fov.mp4",
-    "behavioral": 0.016,
-    "cam_conf": 0.66
-  },
-  {
-    "clip": "a3f3a284-c782-431a-9484-e4ebce7d8caf",
-    "short": "a3f3a284",
-    "cond": "night",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0175/a3f3a284-c782-431a-9484-e4ebce7d8caf.camera_front_wide_120fov.mp4",
-    "behavioral": 0.018,
-    "cam_conf": 0.632
-  },
-  {
-    "clip": "466f696b-ebb2-463a-b813-5b76e301b895",
-    "short": "466f696b",
-    "cond": "rain",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0037/466f696b-ebb2-463a-b813-5b76e301b895.camera_front_wide_120fov.mp4",
-    "behavioral": 0.022,
-    "cam_conf": 0.814
-  },
-  {
-    "clip": "a72d1c1a-f2cd-4040-89fa-0605d1fea785",
-    "short": "a72d1c1a",
-    "cond": "fog",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0244/a72d1c1a-f2cd-4040-89fa-0605d1fea785.camera_front_wide_120fov.mp4",
-    "behavioral": 0.023,
-    "cam_conf": 0.876
-  },
-  {
-    "clip": "688e4042-f280-4e0e-923a-8aa49988fdbe",
-    "short": "688e4042",
-    "cond": "night",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0268/688e4042-f280-4e0e-923a-8aa49988fdbe.camera_front_wide_120fov.mp4",
-    "behavioral": 0.025,
-    "cam_conf": 0.677
-  },
-  {
-    "clip": "db4bbc52-252c-4767-80ec-31480b6ab2d2",
-    "short": "db4bbc52",
-    "cond": "rain",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0010/db4bbc52-252c-4767-80ec-31480b6ab2d2.camera_front_wide_120fov.mp4",
-    "behavioral": 0.026,
-    "cam_conf": 0.91
-  },
-  {
-    "clip": "8455d8a6-3c18-473b-90fd-a89038684c6f",
-    "short": "8455d8a6",
-    "cond": "fog",
-    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0276/8455d8a6-3c18-473b-90fd-a89038684c6f.camera_front_wide_120fov.mp4",
-    "behavioral": 0.027,
-    "cam_conf": 0.72
+    "clip": "1a96d2ae-dc70-44ef-8f3b-cbaee4678014",
+    "short": "1a96d2ae",
+    "behavioral": 0.007,
+    "window_start": 484,
+    "fps": 30.0,
+    "window_agents": 2,
+    "local_mp4": "netai-e2e/nvidia-physicalai-av-subset/camera/camera_front_wide_120fov/camera_front_wide_120fov.chunk_0065/1a96d2ae-dc70-44ef-8f3b-cbaee4678014.camera_front_wide_120fov.mp4",
+    "cond": "fog"
   }
 ]

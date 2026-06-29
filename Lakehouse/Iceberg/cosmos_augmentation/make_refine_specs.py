@@ -13,25 +13,27 @@ CLIP = "/scratch/autodr_test/aug_test/inputs/02fd3a17_121.mp4"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "refine_specs")
 os.makedirs(OUT, exist_ok=True)
 
+# CONDITION-ONLY prompts: describe ONLY lighting/weather/road-surface/sky/atmosphere,
+# NEVER vehicles/people/objects. Mentioning agents makes Cosmos hallucinate them on
+# sparse scenes -> unlabeled objects -> invalid obstacle.offline labels (batch 2026-06-29).
+# Depth control preserves existing geometry; the prompt only re-renders appearance.
 PROMPTS = {
-    "night": ("The video is captured from a camera mounted on a car, facing forward, driving at "
-              "night. The scene is dark, illuminated only by streetlights, traffic signals, and "
-              "the headlights of vehicles. The asphalt reflects the warm glow of streetlights and "
-              "the red and white lights of other cars. Oncoming vehicles cast bright headlight "
-              "beams, while parked cars appear as dim silhouettes. Buildings and trees are dark "
-              "shapes against a black night sky. Low-light, high-contrast, deep shadows and bright "
-              "artificial light sources, characteristic of nighttime driving."),
-    "rain": ("The video is captured from a camera mounted on a car driving in heavy rain during "
-             "the day. The road is wet and covered with puddles reflecting the gray, overcast sky. "
-             "Rain streaks across the windshield, partially blurring the view. Water spray rises "
-             "from the tires of vehicles. Visibility is reduced; distant objects appear hazy "
-             "through the falling rain. The asphalt glistens with moisture, and the overall scene "
-             "is desaturated, gray, and low-contrast, typical of driving in a rainstorm."),
-    "fog": ("The video is captured from a camera mounted on a car driving through dense fog. "
-            "Visibility is severely reduced; the road ahead fades into a thick gray-white haze "
-            "within a short distance. Distant vehicles, buildings, and trees are barely visible as "
-            "faint silhouettes emerging from the fog. Headlights of oncoming cars appear as "
-            "diffuse glowing halos. The scene is washed out, low-contrast, and muted."),
+    "night": ("The video is captured from a forward-facing camera on a car driving at night. The "
+              "scene is dark, lit only by ambient street lighting and the faint glow of the night "
+              "sky. Streetlamps cast soft pools of warm light on the road surface, and areas beyond "
+              "them fall into deep shadow. The asphalt is dark with faint reflections of the "
+              "overhead lighting. The sky is black. The overall atmosphere is low-light and "
+              "high-contrast, characteristic of nighttime, with no daylight."),
+    "rain": ("The video is captured from a forward-facing camera on a car during steady rainfall "
+             "in the daytime. The road surface is wet, glossy, and reflective, with a thin sheen of "
+             "water and scattered shallow puddles. Falling rain and water droplets streak across "
+             "the view. The sky is heavily overcast and gray. Colors are desaturated and the scene "
+             "is low-contrast and muted, with everything glistening with moisture."),
+    "fog": ("The video is captured from a forward-facing camera on a car driving through dense fog "
+            "in the daytime. A thick, uniform gray-white haze blankets the scene, sharply reducing "
+            "visibility so the road and surroundings dissolve into the mist a short distance ahead. "
+            "The air is pale and featureless. The overall image is washed out, low-contrast, and "
+            "muted."),
 }
 
 # control configs (name -> control dict)

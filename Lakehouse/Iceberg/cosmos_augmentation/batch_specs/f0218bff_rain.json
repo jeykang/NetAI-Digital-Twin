@@ -1,5 +1,5 @@
 {
-  "prompt": "The video is captured from a camera mounted on a car driving in heavy rain during the day. The road is wet and covered with puddles reflecting the gray, overcast sky. Rain streaks across the windshield, partially blurring the view. Water spray rises from the tires of vehicles. Visibility is reduced; distant objects appear hazy through the falling rain. The asphalt glistens with moisture, and the overall scene is desaturated, gray, and low-contrast, typical of driving in a rainstorm.",
+  "prompt": "The video is captured from a forward-facing camera on a car during steady rainfall in the daytime. The road surface is wet, glossy, and reflective, with a thin sheen of water and scattered shallow puddles. Falling rain and water droplets streak across the view. The sky is heavily overcast and gray. Colors are desaturated and the scene is low-contrast and muted, with everything glistening with moisture.",
   "input_video_path": "/scratch/autodr_test/aug_test/batch_inputs/f0218bff_121.mp4",
   "depth": {
     "control_weight": 1.0

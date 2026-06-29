@@ -1,5 +1,5 @@
 {
-  "prompt": "The video is captured from a camera mounted on a car, facing forward, driving at night. The scene is dark, illuminated only by streetlights, traffic signals, and the headlights of vehicles. The asphalt reflects the warm glow of streetlights and the red and white lights of other cars. Oncoming vehicles cast bright headlight beams, while parked cars appear as dim silhouettes. Buildings and trees are dark shapes against a black night sky. Low-light, high-contrast, deep shadows and bright artificial light sources, characteristic of nighttime driving.",
+  "prompt": "The video is captured from a forward-facing camera on a car driving at night. The scene is dark, lit only by ambient street lighting and the faint glow of the night sky. Streetlamps cast soft pools of warm light on the road surface, and areas beyond them fall into deep shadow. The asphalt is dark with faint reflections of the overhead lighting. The sky is black. The overall atmosphere is low-light and high-contrast, characteristic of nighttime, with no daylight.",
   "input_video_path": "/scratch/autodr_test/aug_test/batch_inputs/a3f3a284_121.mp4",
   "depth": {
     "control_weight": 1.0

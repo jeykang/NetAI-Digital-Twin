@@ -125,3 +125,17 @@ Production batch TODO: (1) agent-window clip selection (augment clips whose trim
 HAS agents -> valid difficulty signal + something to obscure; first-121-frame trim often
 empty); (2) post-hoc label-validity gate (reject augmented clips that GAIN detections vs day
 in empty regions). Recipe otherwise ready: depth control + condition-only night/rain/fog.
+
+## C safety features (2026-06-29) — agent-window selection + hallucination gate -> production-safe
+Two safeguards (cosmos_augmentation/safety.py), validated end-to-end on a fully-safe batch
+(agent-windowed targets + condition-only prompts, 9 easy clips, 1 node):
+- find_agent_window: pick the 121-frame window with most agents (first-121 trim often empty;
+  e.g. ad2948d2 agents at frame 484, not 0). Wired into select_easy_clips.
+- hallucination_gate: reject aug clips that GAIN detections vs original (added unlabeled
+  agents). Wired into apply_hallucination_gate (post-batch).
+Gate result: KEEP 7/9 (no added agents AND harder, -0.67..-4.33 detections; mean ~-1.4),
+REJECT-hallucination 1, drop-not-harder 1. ad2948d2 (the clip that exposed the bug) now
+augments its real 4-agent window -> fog -> 4.3->0.0 detections, KEPT.
+PRODUCTION PIPELINE READY: select_easy_clips (agent-window) -> stage_batch (trim window) ->
+cosmos_batch.sbatch (depth + condition-only night/rain/fog, 1 node) -> apply_hallucination_gate
+(keep label-valid + harder only). Scale by raising N in select_easy_clips. ~78% keep-rate.

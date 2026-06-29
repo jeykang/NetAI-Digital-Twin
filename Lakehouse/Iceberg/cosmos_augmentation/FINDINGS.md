@@ -109,3 +109,19 @@ Each = behavioral noisy-OR its modality's rank-normed perceptual axis; behaviora
 Full re-score (top 10% of 31,737): camera Gold 3,174 / lidar Gold 3,176; overlap 2,830,
 ~374 unique to EACH tier (Jaccard 0.79) — both add real value. `--gold-axis camera|lidar`
 picks which materializes views. (Spark driver OOM on the dual write -> use --driver-memory 12g.)
+
+## C batch (2026-06-29) — validated at small scale + caught a label-validity bug
+First batch (9 easy clips, depth + rotated night/rain/fog, 1 node ~90min): renders great,
+but content-mentioning prompts made Cosmos HALLUCINATE agents on sparse scenes (empty day
+road -> night render added vehicle taillights -> obstacle.offline labels invalid). Caught
+visually + numerically (empty-day clips gained +0.8 detections).
+FIX: condition-only prompts (lighting/weather/road/sky; never vehicles/agents). A/B re-run
+(same 9 clips):
+  - empty-road aug Δndet +0.8 -> +0.10 (hallucination ~eliminated; ad2948d2 0.7->0.0, visually
+    confirmed empty road stays empty at night)
+  - agent clips still HARDER: Δconf -0.33, Δndet -2.0
+Residual: night occasionally adds faint content (1 of 3) -> needs a hallucination gate.
+Production batch TODO: (1) agent-window clip selection (augment clips whose trimmed segment
+HAS agents -> valid difficulty signal + something to obscure; first-121-frame trim often
+empty); (2) post-hoc label-validity gate (reject augmented clips that GAIN detections vs day
+in empty regions). Recipe otherwise ready: depth control + condition-only night/rain/fog.

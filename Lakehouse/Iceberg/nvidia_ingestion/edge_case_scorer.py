@@ -73,7 +73,9 @@ log = logging.getLogger("nvidia.gold_scorer")
 
 SCORE_SCHEMA = StructType([
     StructField("clip_id", StringType(), False),
-    StructField("difficulty_score", DoubleType(), False),   # 0.0 (easy) to 1.0 (hard)
+    StructField("difficulty_score", DoubleType(), False),   # primary = difficulty_camera (this consumer)
+    StructField("difficulty_camera", DoubleType(), True),   # camera-only perceptual axis
+    StructField("difficulty_lidar", DoubleType(), True),    # lidar-fused perceptual axis (general)
     StructField("scene_score", DoubleType(), True),         # scene complexity component
     StructField("perception_score", DoubleType(), True),    # perception difficulty component
     StructField("backend", StringType(), False),
@@ -294,6 +296,7 @@ def compute_scene_score(
     planning_score: Optional[float] = None,
     conflict_score: Optional[float] = None,
     low_conf_score: Optional[float] = None,
+    camera_low_conf_score: Optional[float] = None,
 ) -> Tuple[float, dict]:
     """Compute composite difficulty for edge-case mining.
 
@@ -331,7 +334,8 @@ def compute_scene_score(
     sub["perception"] = _clamp(perception_score)
     sub["planning"] = _clamp(planning_score)
     sub["conflict"] = _clamp(conflict_score)
-    sub["low_conf"] = _clamp(low_conf_score)
+    sub["low_conf"] = _clamp(low_conf_score)              # lidar-fused
+    sub["camera_low_conf"] = _clamp(camera_low_conf_score)  # camera-only
 
     # --- Edge-case mining: difficulty = noisy-OR union of validated axes ---
     # Keep a clip if it is hard on EITHER axis (a weighted average would dilute a
@@ -341,12 +345,19 @@ def compute_scene_score(
     #                 face-valid + empirically -10% conf / -24% detections in the
     #                 dark), reinforced by low detection confidence where available.
     behavioral = sub["conflict"] if sub["conflict"] is not None else 0.0
-    perceptual = sub["time_of_day"]
-    if sub["low_conf"] is not None:
-        perceptual = max(perceptual, sub["low_conf"])
+    darkness = sub["time_of_day"]
+    # Two perceptual axes (each = darkness reinforced by its modality's low-conf):
+    #   lidar  -> general-purpose, lidar-fused stack (BEVFusion)
+    #   camera -> the consumer's camera-only final product
+    perc_lidar = max(darkness, sub["low_conf"]) if sub["low_conf"] is not None else darkness
+    perc_camera = max(darkness, sub["camera_low_conf"]) if sub["camera_low_conf"] is not None else darkness
     sub["behavioral_axis"] = behavioral
-    sub["perceptual_axis"] = perceptual
-    score = 1.0 - (1.0 - behavioral) * (1.0 - perceptual)
+    sub["perceptual_lidar_raw"] = perc_lidar
+    sub["perceptual_camera_raw"] = perc_camera
+    # Returned score = camera-based (the active consumer); the main loop computes
+    # both difficulties from the rank-normalized axes.
+    sub["perceptual_axis"] = perc_camera
+    score = 1.0 - (1.0 - behavioral) * (1.0 - perc_camera)
     return score, sub
 
 
@@ -590,29 +601,15 @@ def _load_perception_scores(spark, source_path: str) -> Dict[str, float]:
 
 
 def _load_low_conf_scores(spark, source_path: str) -> Dict[str, float]:
-    """Perception-degradation signal feeding the perceptual axis. High = the
-    detector is uncertain (low light / adverse conditions) = perceptually hard.
-
-    Prefers the CAMERA-ONLY agent-gated axis (`<source>/.camera_perception/
-    camera_gated.parquet`, 1 − front-cam YOLO max-conf, gated to scenes with
-    agents present) when available — this matches the consumer's camera-only
-    final product, which the lidar-FUSED BEVFusion signal is blind to (lidar
-    masks camera degradation; see cosmos_augmentation/FINDINGS.md). Falls back
-    to the fused BEVFusion stats (`<source>/.perception/*.parquet`) otherwise.
-    Empty dict if neither exists.
+    """LIDAR-FUSED perception-degradation signal (1 − mean_max_conf from the
+    BEVFusion stats, `<source>/.perception/*.parquet`). High = the fused detector
+    is uncertain = perceptually hard for a lidar-included stack. Feeds the
+    `difficulty_lidar` axis (the general-purpose score). Empty dict if none.
+    Pairs with `_load_camera_low_conf_scores` (the camera-only axis) — the scorer
+    emits BOTH difficulties so Gold serves both lidar-fused and camera-only
+    consumers (see cosmos_augmentation/FINDINGS.md).
     """
     out: Dict[str, float] = {}
-    cam_gated = os.path.join(source_path, ".camera_perception", "camera_gated.parquet")
-    if os.path.isfile(cam_gated):
-        try:
-            df = spark.read.parquet(f"file://{cam_gated}").select("clip_id", "low_conf")
-            for r in df.collect():
-                if r["low_conf"] is not None:
-                    out[r["clip_id"]] = float(max(0.0, min(1.0, r["low_conf"])))
-            log.info("low_conf axis = camera-only gated (%d clips)", len(out))
-            return out
-        except Exception as e:
-            log.warning("Failed to load camera_gated scores, falling back to fused: %s", e)
     perc_dir = os.path.join(source_path, ".perception")
     if not os.path.isdir(perc_dir):
         return out
@@ -627,6 +624,26 @@ def _load_low_conf_scores(spark, source_path: str) -> Dict[str, float]:
                 out[r["clip_id"]] = float(max(0.0, min(1.0, 1.0 - r["mean_max_conf"])))
     except Exception as e:
         log.warning("Failed to load low_conf scores: %s", e)
+    return out
+
+
+def _load_camera_low_conf_scores(spark, source_path: str) -> Dict[str, float]:
+    """CAMERA-ONLY agent-gated perception-degradation signal (`<source>/
+    .camera_perception/camera_gated.parquet`, 1 − front-cam YOLO max-conf, gated
+    to scenes with agents present). Feeds the `difficulty_camera` axis — matches
+    the consumer's camera-only final product, which the lidar-fused signal is
+    blind to (lidar masks camera degradation). Empty dict if absent."""
+    out: Dict[str, float] = {}
+    cam_gated = os.path.join(source_path, ".camera_perception", "camera_gated.parquet")
+    if not os.path.isfile(cam_gated):
+        return out
+    try:
+        df = spark.read.parquet(f"file://{cam_gated}").select("clip_id", "low_conf")
+        for r in df.collect():
+            if r["low_conf"] is not None:
+                out[r["clip_id"]] = float(max(0.0, min(1.0, r["low_conf"])))
+    except Exception as e:
+        log.warning("Failed to load camera_gated scores: %s", e)
     return out
 
 
@@ -838,8 +855,14 @@ class EdgeCaseScorer:
             self.spark, self.config.nvidia.source_path
         )
         if low_conf_scores:
-            print(f"  Loaded low-confidence (perceptual) scores for "
+            print(f"  Loaded LIDAR-fused low-conf scores for "
                   f"{len(low_conf_scores):,} clips")
+        camera_low_conf_scores: dict = _load_camera_low_conf_scores(
+            self.spark, self.config.nvidia.source_path
+        )
+        if camera_low_conf_scores:
+            print(f"  Loaded CAMERA-only low-conf scores for "
+                  f"{len(camera_low_conf_scores):,} clips")
 
         # First pass: compute per-clip axes (behavioral=conflict, perceptual=raw).
         recs = []
@@ -861,12 +884,14 @@ class EdgeCaseScorer:
                 planning_score=planning_scores.get(clip_id),
                 conflict_score=conflict_scores.get(clip_id),
                 low_conf_score=low_conf_scores.get(clip_id),
+                camera_low_conf_score=camera_low_conf_scores.get(clip_id),
             )
             recs.append({
                 "clip_id": clip_id, "hour": hour, "season": season,
                 "country": country, "chunk": chunk, "sub": sub,
                 "behavioral": sub["behavioral_axis"],
-                "perceptual_raw": sub["perceptual_axis"],
+                "perceptual_lidar_raw": sub["perceptual_lidar_raw"],
+                "perceptual_camera_raw": sub["perceptual_camera_raw"],
                 "covered": (conflict_scores.get(clip_id) is not None
                             or perception_scores.get(clip_id) is not None),
             })
@@ -878,21 +903,28 @@ class EdgeCaseScorer:
         # on the same uniform [0,1] scale as conflict (already rank-normalized by
         # the conflict runner). Otherwise darkness=1.0 for night saturates the
         # noisy-OR into a veto and crowds out validated daytime behavioral cases.
+        # Rank-normalize BOTH perceptual axes (lidar-fused + camera-only) over the
+        # covered population, independently, so each is on the same [0,1] scale as
+        # the (already rank-normed) conflict axis.
         cov = [r for r in recs if r["covered"]]
-        order = sorted(range(len(cov)), key=lambda k: cov[k]["perceptual_raw"])
         denom = max(1, len(cov) - 1)
-        for rnk, k in enumerate(order):
-            cov[k]["perceptual"] = rnk / denom
-        for r in recs:
-            r.setdefault("perceptual", r["perceptual_raw"])  # non-covered (excluded from Gold)
+        for axis in ("perceptual_lidar", "perceptual_camera"):
+            order = sorted(range(len(cov)), key=lambda k: cov[k][axis + "_raw"])
+            for rnk, k in enumerate(order):
+                cov[k][axis] = rnk / denom
+        for r in recs:                                   # non-covered (excluded from Gold)
+            r.setdefault("perceptual_lidar", r["perceptual_lidar_raw"])
+            r.setdefault("perceptual_camera", r["perceptual_camera_raw"])
 
-        # Second pass: difficulty = noisy-OR union of the two comparable axes.
+        # Second pass: emit BOTH difficulties = noisy-OR union (behavioral ∪ perceptual).
         scores = []
         for r in recs:
-            diff = 1.0 - (1.0 - r["behavioral"]) * (1.0 - r["perceptual"])
-            r["sub"]["perceptual_axis"] = round(r["perceptual"], 4)  # store normalized axis
+            diff_lidar = 1.0 - (1.0 - r["behavioral"]) * (1.0 - r["perceptual_lidar"])
+            diff_camera = 1.0 - (1.0 - r["behavioral"]) * (1.0 - r["perceptual_camera"])
+            r["sub"]["perceptual_lidar_axis"] = round(r["perceptual_lidar"], 4)
+            r["sub"]["perceptual_camera_axis"] = round(r["perceptual_camera"], 4)
             detail = json.dumps({
-                "method": "noisy-or-union(behavioral=conflict, perceptual=darkness/low_conf)",
+                "method": "noisy-or-union(behavioral=conflict, perceptual=darkness/low_conf); dual lidar+camera",
                 "sub_scores": {k: (round(v, 4) if v is not None else None)
                                for k, v in r["sub"].items()},
                 "hour": r["hour"], "season": r["season"],
@@ -900,8 +932,10 @@ class EdgeCaseScorer:
             })
             scores.append(Row(
                 clip_id=r["clip_id"],
-                difficulty_score=float(diff),
-                scene_score=float(diff),
+                difficulty_score=float(diff_camera),   # primary = camera (this consumer)
+                difficulty_camera=float(diff_camera),
+                difficulty_lidar=float(diff_lidar),
+                scene_score=float(diff_camera),
                 perception_score=perception_scores.get(r["clip_id"]),
                 backend="metadata",
                 detail=detail,
@@ -1039,20 +1073,27 @@ class EdgeCaseScorer:
 
         return self.spark.createDataFrame(scores, SCORE_SCHEMA)
 
-    def build_gold_subset(self, scores_df: DataFrame,
-                          top_pct: float = 10.0) -> Dict[str, int]:
+    def build_gold_subset(self, scores_df: DataFrame, top_pct: float = 10.0,
+                          gold_axis: str = "camera") -> Dict[str, int]:
         """Select the hardest clips as the Gold subset.
+
+        clip_scores stores BOTH `difficulty_camera` (camera-only, this consumer)
+        and `difficulty_lidar` (lidar-fused, general purpose). `gold_axis` picks
+        which one materializes the Gold VIEWS (default "camera"); the other tier
+        is reported + remains derivable from clip_scores by thresholding its column.
 
         Args:
             scores_df: DataFrame with difficulty scores
             top_pct: percentage of hardest clips to include (default 10%)
+            gold_axis: "camera" or "lidar" — which difficulty drives the Gold views
 
         Returns:
             Dict of Gold table name -> row count
         """
-        print(f"[GOLD] Building Gold subset (top {top_pct}% hardest clips)")
+        diff_col = "difficulty_camera" if gold_axis == "camera" else "difficulty_lidar"
+        print(f"[GOLD] Building Gold subset (top {top_pct}%, axis={gold_axis} -> {diff_col})")
 
-        # Write scores table
+        # Write scores table (both difficulty columns persisted)
         scores_table = self._gold("clip_scores")
         scores_df.writeTo(scores_table).using("iceberg").tableProperty(
             "format-version", "2"
@@ -1066,30 +1107,36 @@ class EdgeCaseScorer:
         covered = scores_df.filter(F.col("sensor_covered"))
         n_covered = covered.count()
         print(f"  Sensor-covered (on-disk) clips: {n_covered:,} of {total_scored:,}")
+
+        # Report BOTH tiers (camera + lidar) so each Gold subset is quantified.
+        q = 1.0 - top_pct / 100.0
+        for ax, col in (("camera", "difficulty_camera"), ("lidar", "difficulty_lidar")):
+            tr = covered.filter(F.col(col) >= 0).selectExpr(
+                f"percentile_approx({col}, {q}) as t").collect()
+            if tr and tr[0].t is not None:
+                ng = covered.filter(F.col(col) >= tr[0].t).filter(F.col(col) >= 0).count()
+                tag = "  <- materialized" if ax == gold_axis else ""
+                print(f"  [{ax:6s}] threshold={tr[0].t:.4f}  Gold={ng:,}{tag}")
+
         threshold_row = (
             covered
-            .filter(F.col("difficulty_score") >= 0)
-            .selectExpr(
-                f"percentile_approx(difficulty_score, "
-                f"{1.0 - top_pct/100.0}) as threshold"
-            )
+            .filter(F.col(diff_col) >= 0)
+            .selectExpr(f"percentile_approx({diff_col}, {q}) as threshold")
             .collect()
         )
         if not threshold_row:
             print("  [SKIP] No valid scores — cannot build Gold subset")
             return {}
         threshold = threshold_row[0].threshold
-        print(f"  Difficulty threshold: {threshold:.4f} "
-              f"(top {top_pct}% of scored clips)")
 
-        # Gold clip_ids (sensor-covered + above threshold)
+        # Gold clip_ids (sensor-covered + above threshold on the chosen axis)
         n_gold = (
             covered
-            .filter(F.col("difficulty_score") >= threshold)
-            .filter(F.col("difficulty_score") >= 0)
+            .filter(F.col(diff_col) >= threshold)
+            .filter(F.col(diff_col) >= 0)
             .count()
         )
-        print(f"  Gold clips: {n_gold:,} (of {n_covered:,} sensor-covered)")
+        print(f"  Gold clips ({gold_axis}): {n_gold:,} (of {n_covered:,} sensor-covered)")
 
         # Create Gold views for each Silver/Bronze table+view.
         # Silver sensor objects are Iceberg VIEWs, so SHOW TABLES misses them;
@@ -1135,8 +1182,8 @@ class EdgeCaseScorer:
                         f"FROM {self.cat}.{source_ns}.{tbl} s "
                         f"WHERE s.clip_id IN ("
                         f"  SELECT clip_id FROM {scores_table} "
-                        f"  WHERE difficulty_score >= {threshold} "
-                        f"  AND difficulty_score >= 0 "
+                        f"  WHERE {diff_col} >= {threshold} "
+                        f"  AND {diff_col} >= 0 "
                         f"  AND sensor_covered"
                         f")"
                     )
@@ -1167,6 +1214,7 @@ def run_gold_scoring(
     top_pct: float = 10.0,
     limit: int = 0,
     backend_kwargs: Optional[dict] = None,
+    gold_axis: str = "camera",
 ) -> Tuple[DataFrame, Dict[str, int]]:
     """Run edge-case scoring and build Gold subset.
 
@@ -1198,7 +1246,7 @@ def run_gold_scoring(
 
         scorer = EdgeCaseScorer(spark, config, backend)
         scores_df = scorer.score_all_clips(limit=limit)
-        gold_results = scorer.build_gold_subset(scores_df, top_pct=top_pct)
+        gold_results = scorer.build_gold_subset(scores_df, top_pct=top_pct, gold_axis=gold_axis)
 
         # Score distribution summary (over the sensor-covered difficulty tier)
         stats = (

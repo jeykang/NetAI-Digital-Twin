@@ -10,11 +10,14 @@ if __name__ == "__main__":
     p.add_argument("--backend", default="metadata")
     p.add_argument("--top-pct", type=float, default=10.0)
     p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--gold-axis", default="camera", choices=["camera", "lidar"],
+                   help="Which difficulty drives the Gold views (both stored in clip_scores)")
     args = p.parse_args()
 
     scores_df, gold_results = run_gold_scoring(
         backend_name=args.backend,
         top_pct=args.top_pct,
         limit=args.limit,
+        gold_axis=args.gold_axis,
     )
     sys.exit(0)

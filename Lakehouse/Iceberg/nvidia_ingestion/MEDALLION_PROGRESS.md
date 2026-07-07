@@ -37,12 +37,20 @@ labels (OOD AUC 0.450) and re-architected. Full detail: [`progress/2026-06.md`](
 - **[2026-06 — Difficulty metric + validation](progress/2026-06.md)** —
   driving-difficulty roadmap + gate, agent-conflict from `obstacle.offline`,
   validity battery (refuted the old composite), noisy-OR union re-architecture,
-  repo cleanup, **+ figures**.
+  repo cleanup, **+ figures**; then (§17–§20) **camera-only perceptual axis**
+  (consumer's endgame), **dual Gold** (camera + lidar difficulty), and the
+  **Cosmos-Transfer augmentation** pipeline — day→night/rain/fog on the A100
+  cluster, label-preserving, with agent-window selection + a hallucination gate.
 
 ## How to run (quick reference)
 - **Pipeline / tiers**: see [`progress/2026-04.md`](progress/2026-04.md) §2–§3
   (`register_bronze.py`, `quality_checks.py`, `pipeline.py`).
-- **Gold difficulty scoring**: `run_gold_scoring` in `edge_case_scorer.py`
-  (metadata backend) after `planning/conflict_runner.py` writes `.conflict/` and
-  the BEVFusion runner writes `.perception/`.
+- **Gold difficulty scoring**: `run_gold_scoring` in `edge_case_scorer.py` (metadata
+  backend) after `planning/conflict_runner.py` writes `.conflict/`, `behavioral_runner.py`
+  writes `.behavioral/`, and `camera_perception_runner.py` + `write_camera_gated.py` write
+  `.camera_perception/`. Emits dual `difficulty_camera`/`difficulty_lidar`
+  (`run_gold_score.py --gold-axis camera|lidar`).
 - **Validation**: `validity_battery.py` / `union_validate.py`.
+- **Cosmos augmentation** (A100 cluster, one node): `cosmos_augmentation/select_easy_clips.py`
+  → `stage_batch.py` → `cosmos_batch.sbatch` → `apply_hallucination_gate.py`. Setup/creds
+  in `cosmos_augmentation/FINDINGS.md` + memory `a100-cluster-access`.

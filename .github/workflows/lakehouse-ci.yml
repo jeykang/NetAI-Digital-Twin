@@ -1,0 +1,51 @@
+name: lakehouse-ci
+
+# Monorepo-scoped: only runs on changes under the lakehouse subtree.
+on:
+  push:
+    paths: ["Lakehouse/Iceberg/**"]
+  pull_request:
+    paths: ["Lakehouse/Iceberg/**"]
+
+defaults:
+  run:
+    working-directory: Lakehouse/Iceberg
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ruff pytest
+      - name: ruff (errors-only, per ruff.toml)
+        run: ruff check .
+      - name: pytest (config resolution — no Spark / no live services)
+        run: pytest tests/ -q
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint + render (default + prod overlays)
+        run: |
+          helm lint deploy/helm/lakehouse
+          helm template lh deploy/helm/lakehouse >/dev/null
+          helm template lh deploy/helm/lakehouse -f deploy/helm/lakehouse/values-prod.yaml >/dev/null
+
+  build-spark-image:
+    runs-on: ubuntu-latest
+    needs: [lint-test, helm]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Build validates the Dockerfile. To publish, add a registry login step and set push: true.
+      - uses: docker/build-push-action@v6
+        with:
+          context: Lakehouse/Iceberg
+          file: Lakehouse/Iceberg/deploy/docker/Dockerfile.spark
+          push: false
+          tags: lakehouse-spark:ci

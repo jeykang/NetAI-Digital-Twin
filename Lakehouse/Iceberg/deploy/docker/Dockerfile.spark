@@ -1,0 +1,17 @@
+# Spark + Iceberg image with the ingestion code baked in (K8s analogue of the
+# docker-compose spark-iceberg service, which bind-mounts the code).
+# Build context = the Iceberg repo root (Lakehouse/Iceberg):
+#   docker build -f deploy/docker/Dockerfile.spark -t lakehouse-spark:TAG .
+FROM tabulario/spark-iceberg:3.5.5_1.8.1
+
+WORKDIR /opt/spark
+ENV PYTHONPATH=/opt/spark
+
+# Ingestion + scoring code (config is env-driven; no secrets baked in).
+COPY nvidia_ingestion/ /opt/spark/nvidia_ingestion/
+COPY kaist_ingestion/ /opt/spark/kaist_ingestion/
+COPY planning/ /opt/spark/planning/
+
+# Optional extra Python deps (base image already has pyspark + iceberg runtime).
+# COPY requirements.txt /tmp/requirements.txt
+# RUN pip install --no-cache-dir -r /tmp/requirements.txt

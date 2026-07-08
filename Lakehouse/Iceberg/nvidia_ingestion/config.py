@@ -5,11 +5,14 @@ Extends the lakehouse config pattern with dataset-specific paths and settings
 for ingesting from NFS-mounted HuggingFace Hub zip archives.
 """
 
+from __future__ import annotations  # lazy annotations -> config importable without pyspark (CI)
+
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from pyspark.sql import SparkSession
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 from kaist_ingestion.config import (
     CatalogConfig,
@@ -40,10 +43,10 @@ class NvidiaConfig:
         default_factory=lambda: _env("NVIDIA_SOURCE_PATH", SNAP_DEFAULT)
     )
 
-    # Iceberg namespace names
-    namespace_bronze: str = "nvidia_bronze"
-    namespace_silver: str = "nvidia_silver"
-    namespace_gold: str = "nvidia_gold"
+    # Iceberg namespace names (env-overridable for multi-env / multi-tenant deploys)
+    namespace_bronze: str = field(default_factory=lambda: _env("NVIDIA_NS_BRONZE", "nvidia_bronze"))
+    namespace_silver: str = field(default_factory=lambda: _env("NVIDIA_NS_SILVER", "nvidia_silver"))
+    namespace_gold: str = field(default_factory=lambda: _env("NVIDIA_NS_GOLD", "nvidia_gold"))
 
     # Performance tuning
     target_file_size_bytes: int = 134_217_728  # 128 MB
@@ -88,11 +91,13 @@ class NvidiaPipelineConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     catalog: CatalogConfig = field(default_factory=CatalogConfig)
     nvidia: NvidiaConfig = field(default_factory=NvidiaConfig)
-    spark_catalog_name: str = "iceberg"
+    spark_catalog_name: str = field(default_factory=lambda: _env("SPARK_CATALOG_NAME", "iceberg"))
 
 
 def build_spark_session(config: NvidiaPipelineConfig, app_name: str = "nvidia-ingestion"):
     """Build a SparkSession with Iceberg, S3/Polaris, and memory tuning."""
+    from pyspark.sql import SparkSession  # lazy: only needed to actually build a session
+
     catalog = config.spark_catalog_name
     storage = config.storage
     cat_cfg = config.catalog

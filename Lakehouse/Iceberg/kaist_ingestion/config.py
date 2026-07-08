@@ -5,11 +5,14 @@ Handles environment variables, Spark session configuration, and storage backend 
 Supports both MinIO (development) and Ceph (production) S3-compatible backends.
 """
 
+from __future__ import annotations  # lazy annotations -> config importable without pyspark (CI)
+
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from pyspark.sql import SparkSession
+if TYPE_CHECKING:
+    from pyspark.sql import SparkSession
 
 
 def _env(name: str, default: Optional[str] = None) -> str:
@@ -101,6 +104,8 @@ def build_spark_session(config: PipelineConfig, app_name: str = "kaist-ingestion
     Returns:
         Configured SparkSession
     """
+    from pyspark.sql import SparkSession  # lazy: only needed to actually build a session
+
     catalog = config.spark_catalog_name
     storage = config.storage
     cat_cfg = config.catalog

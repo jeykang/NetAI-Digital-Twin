@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --nodelist=hpc-pr-a-pod09
 #SBATCH --partition=jobs
-#SBATCH --time=03:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=/scratch/autodr_test/aug_test/batch_%j.out
 #SBATCH --error=/scratch/autodr_test/aug_test/batch_%j.err
 set -eo pipefail

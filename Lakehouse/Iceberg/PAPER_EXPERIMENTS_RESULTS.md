@@ -133,3 +133,65 @@ O(100 ms) on live production data — consistent with the synthetic sweep's O(1)
 sensor data) are **join-bound (8–17 s)** — a lazy, one-time extraction cost, not a scan-
 scaling regression. Report the fast table numbers as the O(1) evidence and note the view-
 join cost explicitly (it's an extraction step, not an interactive query).
+
+---
+# Verifications R1–R5 (2026-07-16)
+
+## R1 — NFS registration rate (closes the projection's weakest link)  ✅
+The scalability sweep's **349 files/s is NVMe-staged** (`source_dir=/tmp/nvidia-extract`).
+The **real production Bronze registration ran over NFS** and is logged
+(progress/2026-04.md): full recovered corpus (340/340 lidar chunks, 19 radar sensors,
+6.16 M lidar + 11.73 B radar rows) **Bronze = 2 h 8 m** (Silver 42 m, Gold 16 m; total 3 h 6 m
+excluding download). On-disk parquet count now **647,363**, so ≈ **84 files/s over NFS**
+(order-of-magnitude; the 2h8m corpus ≈ current file count). ⇒ NFS registration is ~**4×
+slower than NVMe** (84 vs 349 files/s). Recommend: state 349 files/s as the NVMe ceiling,
+84 files/s (or "2 h 8 m for the corpus") as the real NFS rate, and scale the PB projection
+by ~4× for NFS-backed storage.
+
+## R2 — Purge scope + symlink indirection are adopted practice  ✅ (stronger sentence returns)
+- **Purge restricted to materialized data:** `canonical_bronze.py` drops register-in-place
+  tables with **plain `DROP TABLE` (NO PURGE)** — comment: "PURGE would delete the NFS
+  source parquets." `aux_registration.py` PURGEs only the materialized aux tables. So purge
+  is scoped to materialized/aux namespaces; source data is never purged.
+- **Read-only mount:** the Helm Spark pod mounts the raw data `readOnly: true`
+  (`deploy/helm/lakehouse/templates/spark.yaml:42`).
+- **Per-dataset indirection:** register_bronze builds a per-chunk **symlink staging tree**
+  `<source>/.bronze_staging/<table>_<suffix>/chunk_*/` so `add_files()` sees only matching
+  files; "the staging symlinks must persist (Iceberg manifests store their paths)"
+  (progress/2026-04.md). Observed mechanism, documented.
+
+## R3 — 0.58 vs 0.503 reconciliation  ✅
+Two different quantities, both correct:
+- **0.58 (Jun):** the **agent-gated camera detection signal alone** (`camera_low_conf`
+  gated to agent-present clips) evaluated on the camera coverage vs a **452-clip** OOD
+  subset (raw 0.43 → gated 0.58; FINDINGS.md). Gating adds mild agent-presence (behavioral)
+  leakage → slight OOD alignment.
+- **0.503 (Jul):** the **fully-assembled perceptual axis** `max(darkness, low_conf)`,
+  **rank-normalized** over the covered population, read from `clip_scores.detail` by
+  `union_validate.py`, vs the **200-clip** OOD overlap on the sensor-covered tier.
+Different **signal** (gated camera alone vs darkness-OR-camera, rank-normed) and different
+**population/OOD set** (452 on camera coverage vs 200 on covered tier). The darkness
+component (orthogonal/anti to the daytime-behavioral OOD) pulls the assembled axis to
+~0.503. Both are consistent with "the perceptual signal is near-chance against a
+daytime-behavioral OOD label." The §V-C parenthetical is accurate.
+
+## R4 — Gold views recompute their definition  ✅
+`edge_case_scorer.build_gold_subset` creates each Gold view as
+`CREATE OR REPLACE VIEW gold.<tbl> AS SELECT s.* FROM silver.<tbl> s WHERE s.clip_id IN
+(SELECT clip_id FROM clip_scores WHERE <difficulty> >= <threshold> AND sensor_covered)`.
+So `COUNT(*)` on Camera/EgoMotion Gold views re-evaluates the join over the **registered
+Silver sensor tables** × the difficulty IN-filter — confirming the 8–17 s E-G figures are
+view-definition recomputation, not a scan regression.
+
+## R5 — Ingestion funnel attributed  ✅
+Live counts (2026-07-16): bronze `clip_index` / `aux_data_collection` /
+`aux_sensor_presence` / `Clip` = **306,152** each; `clip_scores` = **305,724** with exactly
+**428** clip_index clips unscored (0 extra). Full funnel:
+- **310,895** — raw `clip_index.parquet` on disk (DATASET.md; 1,727 driving hours).
+- → **306,152** — registered into Bronze. The **4,743** dropped are registry clips with **no
+  registerable on-disk data** (register-in-place only registers present files; = dataset
+  version skew + the subset not recovered after the April data-loss incident).
+- → **305,724** — scored/Silver: **428** excluded by the `feature_presence` missing-sensor
+  check (99.86% retention).
+The full funnel can go back into §III with the 4,743 attributed to on-disk absence and the
+428 to the sensor-presence check.

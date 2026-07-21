@@ -349,6 +349,13 @@ def run_scale(spark, max_files: int, sensors: List[Tuple[str, str]],
         except Exception:
             pass
 
+    # E-D planning-curve additions: Iceberg metadata (.files) scans per tier.
+    if radar_t:
+        queries["bronze_radar_files"] = f"SELECT count(*) FROM {CAT}.{ns_bronze}.{radar_t}.files"
+        queries["silver_radar_files"] = f"SELECT count(*) FROM {CAT}.{ns_silver}.{radar_t}.files"
+    if "egomotion" in all_tables:
+        queries["bronze_ego_files"] = f"SELECT count(*) FROM {CAT}.{ns_bronze}.egomotion.files"
+
     def timed_query(sql):
         try:
             t0 = time.time()
@@ -356,6 +363,15 @@ def run_scale(spark, max_files: int, sensors: List[Tuple[str, str]],
             return round(time.time() - t0, 4)
         except Exception:
             return -1
+
+    # E-D: cold first-query (fresh plan -> includes query planning) BEFORE warm-up.
+    try:
+        spark.sql("CLEAR CACHE")
+        _cold_sql = queries.get("bronze_radar_count") or next(iter(queries.values()))
+        _t = time.time(); spark.sql(_cold_sql).collect()
+        result["cold_first_query_s"] = round(time.time() - _t, 4)
+    except Exception:
+        result["cold_first_query_s"] = -1
 
     # Warm-up
     for sql in queries.values():

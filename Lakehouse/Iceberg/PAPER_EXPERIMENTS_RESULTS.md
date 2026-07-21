@@ -1,7 +1,7 @@
 # Paper experiments E-A…E-G — results
-*Run 2026-07-16. Companion to PAPER_REFERENCE_SC26.md. 6 of 7 landed; E-B is queued on
-the cluster (job 167340, PENDING behind the other project) and will be appended when it
-runs. All curation numbers are pinned to the **2026-07-16 snapshot**.*
+*Run 2026-07-16; E-B completed 2026-07-21. Companion to PAPER_REFERENCE_SC26.md. **All 7
+experiments landed.** Curation numbers pinned to the **2026-07-16 snapshot**; the N=50
+augmentation batch to 2026-07-21.*
 
 ---
 
@@ -42,13 +42,24 @@ populations stable). **Gold composition:** high-conflict (≥0.7) **66%**, union
 
 ---
 
-## E-B — Scaled augmentation batch  ⏳ QUEUED (job 167340)
+## E-B — Scaled augmentation batch  ✅ (landed 2026-07-21, before deadline)
 N=50 easy clips (agent-window ON, condition-only prompts, depth control, rotated
-night/rain/fog) staged + submitted to pod09; currently **PENDING (Resources)** behind the
-other project. ~7 min/clip ⇒ ~6 h once it starts. **Per the deadline rule:** if it lands by
-2026-07-22 it replaces the pilot rate; otherwise §VI keeps the pilot **KEEP 7/9** and the
-N=50 run becomes future work. *(Will be appended: N staged / kept / rejected-hallucination
-/ rejected-not-harder; Δconf + Δdet distribution of kept clips; wall-clock.)*
+night/rain/fog), one node (job 167340, COMPLETED, **7 h 00 m** wall-clock ⇒ ~8.4 min/clip
+on 4× A100-40 GB), then `apply_hallucination_gate`:
+| outcome | N |
+|---|---|
+| staged | 50 |
+| **KEEP (label-valid ∧ harder)** | **43 (86%)** |
+| rejected — hallucination | 2 |
+| dropped — not harder | 5 |
+
+**By condition:** night 14/17, **rain 17/17**, fog 12/16. **Kept-clip difficulty:** mean
+Δconf **−0.18** (range −0.58…+0.21), mean Δdet **−0.88/clip** (range −4.3…+0.3).
+
+**Verdict:** the scaled run confirms and strengthens the pilot — **86% keep-rate over 50
+clips** (vs the 7/9 = 78% pilot), turning an anecdotal rate into a real one. §VI should lead
+with "86% keep-rate (43/50)"; the gate's two rejections + five not-harder drops show it
+still filters. Rain is the most reliable condition (100% kept).
 
 ---
 

@@ -206,3 +206,107 @@ Live counts (2026-07-16): bronze `clip_index` / `aux_data_collection` /
   check (99.86% retention).
 The full funnel can go back into §III with the 4,743 attributed to on-disk absence and the
 428 to the sensor-presence check.
+
+---
+# Data-refresh round R-A–R-D (2026-07-22, current Spark-driver host)
+
+**Host under test (R-A/R-B, and the E-D/E-G query timings):** Intel Xeon Silver 4310
+(x86-64, 24 cores, 188 GB RAM, 437 GB local disk). The **April runs** were on a **DGX Spark**
+(ARM, 121 GB RAM, 1.9 TB local NVMe). R-D attribution of the April numbers by storage tier:
+- **Production Bronze (2 h 8 m, full ~13 TB corpus, 84 files/s) = NFS.** The full corpus
+  never fit on the DGX's 1.9 TB NVMe, so the driver registered directly over the NFS mount.
+- **Scalability sweep (349 files/s) = local NVMe**, on a **53 GB subset** pre-extracted from
+  NFS to `/tmp/nvidia-extract` (SCALABILITY_REPORT.md).
+
+So the clean cross-host comparisons are **same-tier**: R-B (Xeon **NFS**) vs production (DGX
+**NFS**); R-A (Xeon **local disk**) vs sweep (DGX **NVMe**). Both isolate a ~2.8–2.9× host
+gap — see R-B.
+
+## R-B — production Bronze re-timed on the current host (NFS)  ⚠️ interrupted, but corroborative
+Re-ran `register_bronze` (add_files, mode=nfs) into a throwaway namespace on the Xeon host.
+It registered **30 tables steadily in 5 h 56 m 20 s** (06:34:37 → 12:30:57): all **19 radar
+sensors (11.73 B radar rows)**, lidar (6.33 M), egomotion (98.7 M), + 4 cameras — **11.99 B
+rows, 4,224 clip-partition dirs** total → **≈ 560,800 rows/s over NFS**. It then **stalled
+~39 min on the 31st table** (`cam_camera_front_tele_30fov_ts`, an NFS read stall) and the
+JVM died before a clean summary, so there is no full-corpus total for this host.
+- **Finding:** the current commodity **x86** host registered the full radar bulk (the
+  dominant file/row cost) in **~2.8×** the DGX Spark's *entire* 2 h 8 m Bronze. **Both runs
+  read over NFS** — the April production 2 h 8 m was NFS too (the full ~13 TB corpus never
+  fit on the DGX's 1.9 TB NVMe; only the scalability-sweep *subset* was NVMe-staged). So this
+  is a **same-storage-tier (NFS) host comparison**: the ~2.8× is a **host gap, not an
+  NFS-vs-NVMe effect**. R-A independently confirms the *same* ~2.9× host gap at the
+  local-disk tier (121.8 vs 349 files/s), so the Xeon driver is ~2.8–2.9× slower than the
+  DGX at `add_files` **regardless of source tier** — register-in-place throughput is
+  **host-bound** (footer-stat reads, CPU/single-thread limited). Storage tier still matters
+  strongly *within* a host (R1: DGX NFS 84 vs NVMe 349 f/s ≈ 4×); the two effects compound.
+  NFS can additionally stall an individual table (the 31st here). The **DGX 2 h 8 m
+  (84 files/s over NFS) remains the headline production number**; a clean full re-time on the
+  Xeon host is future work.
+- **R2 teardown (clean):** all 40 throwaway tables dropped via the Polaris REST API with
+  **`purgeRequested=false`** — the explicit no-PURGE — then the namespace removed. **NFS
+  source parquets verified intact** afterward (19 radar sensors × 6,000 parquets each still
+  present). The orphaned ~1.1 GB of throwaway manifests were removed from the MinIO
+  `spark1/rb_bench_bronze/` prefix only; production `nvidia_bronze/silver/gold` untouched.
+
+## R-C — blob-vs-decode microbench  ✂️ CUT
+No blob-vs-decode harness exists in-repo to re-run; per the default-on-silence rule it is
+**cut** from the paper rather than fabricated.
+
+## Q — the "roughly five orders of magnitude" claim, anchored (measured, not estimated)
+MinIO warehouse `du` on `spark1`: **nvidia_gold = 281 MB** (materialized difficulty index
+`clip_scores` = 278 MB, one score row per clip), **nvidia_silver = 6.9 MB** (views only),
+**nvidia_bronze = 19 GB** (register-in-place catalog metadata + snapshot history).
+- **Anchor to use:** the **≈0.28 GB Gold+Silver difficulty-curation state** represents the
+  **≈13 TB on-disk corpus → ~4.7 orders** (13 TB / 0.28 GB ≈ 46,000×), or **~5.6 orders**
+  vs the full **~120 TB** dataset. Either supports "roughly five orders."
+- **Do NOT cite** the 19 GB full-warehouse footprint for this claim — incl. Bronze catalog
+  metadata it is only **~2.8 orders** vs 13 TB (that metadata is what makes the 13 TB
+  *queryable in place* — a different quantity; a reviewer must not conflate them).
+- Rows-based fallback (same story at clip-vs-row granularity): **305,724** clip score-rows
+  vs **11.73 B** radar rows ≈ **4.6 orders**.
+- Suggested wording: *"the 0.28 GB materialized difficulty index (`clip_scores`, one row per
+  clip) represents the ≈13 TB on-disk corpus — nearly five orders of magnitude, rising to
+  ~5.6 against the full ~120 TB dataset."*
+
+## R-A — current-host scalability sweep + E-D planning queries  ✅ (3 of 4 scales)
+Staged 85 GB (≤4,994 radar+egomotion parquets/sensor, 20 sensors) to **local disk** and ran
+`local_scale_bench.py` on the Xeon host. Report: `user_data/local_scalability_report.json`
+(2026-07-22T02:23). **Scales 100 / 500 / 2000 completed; scale 4994 was capacity-bound**
+(see below).
+
+**Register-in-place (add_files, local disk):**
+
+| scale | files | rows | register_s | wall_s |
+|------:|------:|-----:|-----------:|-------:|
+| 100  | 1,976  | 150.9 M | 48.8  | 197.3 |
+| 500  | 9,930  | 758.6 M | 106.7 | 633.0 |
+| 2000 | 39,348 | 3.02 B  | 353.2 | 2080.5 |
+
+Linear regression over the three points: **0.0082 s/file + 29.3 s fixed → 121.8 files/s**
+marginal. Projection: **119 TB (6 M files) → 13.7 h**; **1 PB (60 M files) → 136.8 h**.
+
+**Key result — query latency is CONSTANT across a 20× data-volume increase** (100→2000
+files/sensor). All 14 queries stay flat (median, 3-run): Bronze/Silver/Gold `count`
+58–99 ms, `sample` 63–148 ms, the heaviest `silver_ego_clip_agg`/`count` 220→331 ms
+(1.3–1.4× for 20× data). The **E-D planning-curve queries** (Iceberg `.files`/`.entries`
+metadata scans) are likewise flat: `bronze_radar_files` 82→121 ms, `silver_radar_files`
+86→87 ms, `bronze_ego_files` 93→102 ms. **`cold_first_query`** (fresh plan, cache cleared):
+155 / 94 / 132 ms across the three scales. ⇒ register-in-place + Iceberg metadata makes
+query & planning cost **independent of underlying data volume** — the central scalability
+claim, now measured on this host with the planning-curve queries the paper wanted.
+
+**Cross-check vs April DGX (R1/R-D):** this host's **121.8 files/s** (local disk) is ~2.9×
+slower than the April DGX sweep's **349 files/s** — the *same ~2.8× host gap* R-B saw over
+NFS. So the slowdown is **host-bound** (add_files reads every parquet footer for stats;
+CPU/local-IO limited), not purely an NFS effect. The **DGX numbers remain the headline**;
+these are the second-host reproducibility check, and the constant-query-latency result
+reproduces cleanly on both.
+
+**Scale 4994 — capacity-bound, not a pipeline limit.** The bench *materializes* Silver via
+CTAS (to stress-test); at 4994 the materialized Silver reached **72 GB** and hit MinIO's
+`507 minimum-free-drive` threshold on the 437 GB host disk, so the scale aborted (script
+caught it and emitted the 3-scale report). **Production Silver is views (6.9 MB), never
+materialized** — so this is a bench-design artifact that itself demonstrates why the
+pipeline uses register-in-place Bronze + Silver-as-views rather than materializing every
+tier. Throwaway namespaces + the 72 GB were cleaned up (purge-false + direct prefix removal);
+production `nvidia_bronze/silver/gold` untouched.

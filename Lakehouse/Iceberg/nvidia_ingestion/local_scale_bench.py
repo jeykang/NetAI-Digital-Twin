@@ -27,8 +27,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import regexp_extract, input_file_name, lit
 
 # ── Constants ────────────────────────────────────────────────────────
-EXTRACT_DIR = "/tmp/nvidia-extract/scale_50"
-REPORT_FILE = "/tmp/local_scalability_report.json"
+EXTRACT_DIR = os.environ.get("EXTRACT_DIR", "/tmp/nvidia-extract/scale_50")
+REPORT_FILE = os.environ.get("REPORT_FILE", "/tmp/local_scalability_report.json")
 CAT = "iceberg"
 ADD_FILES_BATCH = 5_000
 

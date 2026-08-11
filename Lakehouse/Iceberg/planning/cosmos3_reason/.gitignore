@@ -1,0 +1,9 @@
+c3_venv/
+.clip_index.json
+.gate_*.json
+.run_*.log
+.review_key.json
+.review_scored.json
+review.html
+ratings.json
+__pycache__/

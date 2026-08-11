@@ -139,3 +139,32 @@ augments its real 4-agent window -> fog -> 4.3->0.0 detections, KEPT.
 PRODUCTION PIPELINE READY: select_easy_clips (agent-window) -> stage_batch (trim window) ->
 cosmos_batch.sbatch (depth + condition-only night/rain/fog, 1 node) -> apply_hallucination_gate
 (keep label-valid + harder only). Scale by raising N in select_easy_clips. ~78% keep-rate.
+
+## Cosmos 3 Edge evaluated for the generation half (2026-08-10) — NO-GO
+
+NVIDIA released Cosmos3-Edge (4B, 2026-07-20), the small tier of the Cosmos 3
+family. Evaluated as a way off the A100-cluster dependency. **It cannot replace
+Cosmos-Transfer1 here**: its generator input is text + image + action trajectory
+only — no video input — and NVIDIA states outright that *"Cosmos3-Edge currently
+doesn't support video-to-video transfer."* Nano (16B) and Super (64B) do expose
+`transfer-control video-to-video` (edge/blur/depth/seg/wsm) via vLLM-Omni; the
+capability was cut from the Edge tier.
+
+Disqualifying rather than inconvenient: our whole label-validity story rests on
+**depth-controlled** generation preserving geometry so obstacle.offline labels and
+ego pose transfer for free. Edge offers no control-video conditioning — i2v from
+frame 0 would re-invent every non-ego agent (exactly the hallucination failure
+`safety.hallucination_gate` exists to catch), and AV action conditioning (9D)
+steers ego only. Secondary limits, moot given the above: 480p max output (we
+render 704); 50-150 frames (our 121-frame window would have fit).
+
+Also recorded, because it is a trap: **param count is a bad VRAM proxy for video
+diffusion.** Cosmos-Transfer2.5-**2B** still documents **65.4 GB** single-GPU VRAM
+with no offload path, so it does not get us off the cluster either; and its
+`--model=edge/distilled` flag means the *Canny-edge control modality*, not an edge
+device. If the generation half is revisited, the thing to measure is Cosmos3-Nano's
+unified transfer-control v2v (one model consuming the control video in-sequence
+instead of Transfer1's per-modality ControlNet stack) — not Edge.
+
+Full evaluation incl. the reasoning half (which IS a go):
+`planning/cosmos3_reason/FEASIBILITY.md`.

@@ -211,3 +211,40 @@ perceptual.
 
 Regenerate the OOD id list with:
 `python3 -c "import pyarrow.parquet as pq; open('nvidia_ingestion/_ood_clips.txt','w').write('\n'.join(pq.read_table('<ood_reasoning.parquet>',columns=['clip_id']).column('clip_id').to_pylist()))"`
+
+## Behavioral axis anti-selects camera-only failures (2026-08-11)
+
+Measured while testing an unrelated candidate axis; the result is about the
+production composite, so it is recorded here. Random cohort sample n=1500, scored
+with an **independent** camera consumer proxy — `yolov8n` at frame fractions
+0.15/0.45/0.85, deliberately different from the `yolo11x` @ 0.3/0.5/0.7 that built
+`camera_low_conf`. Failure = agents present (behavioral) AND consumer max-confidence
+< 0.5. Cohort failure rate given agents = **0.356**.
+
+| axis | Spearman vs consumer confidence | top-10% failure rate |
+|---|---|---|
+| `conflict` (behavioral) | **+0.689** | **0.013** |
+| `camera_gated` (perceptual) | -0.705 (shares detector lineage) | 0.651 |
+| `darkness` (perceptual, non-circular) | -0.150 | — |
+| PRODUCTION noisy-OR union | — | 0.226 |
+
+**`conflict` predicts camera detection being EASIER, strongly and non-circularly.**
+Agent-dense scenes contain large, close, unambiguous objects that a camera detector
+resolves confidently. Consequence for the composite: because difficulty noisy-ORs
+behavioral with perceptual, the behavioral leg pulls the union **below the cohort
+base rate** at every selection fraction tested (0.145 / 0.226 / 0.283 / 0.312 at
+5/10/20/30% vs base 0.356), while the perceptual leg alone runs ~2x base.
+
+This is not a defect of `conflict` — it measures agent-interaction difficulty, a
+different construct that the union deliberately includes, and the union exists to
+keep clips hard on *either* axis. It IS a live issue for the stated camera-only
+endgame: **if the mining goal is clips that break the consumer's camera stack, the
+union roughly halves the yield versus selecting on the perceptual axis alone.** If
+both constructs are wanted, they should be mined as separate quotas rather than
+noisy-OR'd into one ranking, since the axes are anti-correlated for this outcome.
+
+Caveat on magnitude: perceptual's 0.651 is inflated by the -0.705 shared-detector
+correlation with the outcome. Its clean non-circular component is darkness (-0.150).
+The `conflict` result has no such caveat — different detector, different frames.
+
+Method + data: `planning/cosmos3_reason/downstream_utility.py` (pre-registered).

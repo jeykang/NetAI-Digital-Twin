@@ -168,9 +168,19 @@ def main():
         link(rp_, f"{d}/radar/{os.path.basename(rp_)}", a.link); n_radar += 1
     report["present"].append(f"radar x{n_radar}")
 
-    # 6. provenance
+    # 6. provenance — the converter copies repo_id / revision / commit_sha into the
+    #    sequence meta (source_repo_id, source_revision, source_commit_sha), so name
+    #    them the way pai-clip-dl does; the rest is our own record
     report["staged_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     report["source"] = {"media_and_labels": root, "offline_features": HF_REPO, "layout": "pai-clip-dl"}
+    report["repo_id"] = HF_REPO
+    report["revision"] = "main"
+    if not a.no_offline:
+        try:
+            from huggingface_hub import HfApi
+            report["commit_sha"] = HfApi(token=tok).dataset_info(HF_REPO).sha
+        except Exception:
+            report["commit_sha"] = None
     json.dump(report, open(f"{d}/metadata/provenance.json", "w"), indent=1)
     print(f"[stage] {clip} (chunk {ch}) -> {d}")
     print("  present:", ", ".join(report["present"]))

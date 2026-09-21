@@ -115,8 +115,12 @@ camera/sensor/lidar calibration — is met by 298,326 of the 306,152 corpus clip
 31,861 of our 32,651 on-disk clips (Gold top-300: 290), because those are small
 per-chunk files in the gated main dataset our token can read. One on-disk clip was
 staged, converted (2 min, 3.0 GB) and read back by NVIDIA's own V4 loader
-(`ncore/README.md`). What remains is NuRec reconstruction of that store (>24 GB VRAM)
-and then `LOCAL_USDZ_DIR` — whose loading path is also verified (risk 1 above).
+(`ncore/README.md`). Later the same day, with NCore-release access granted, the store was diffed
+against NVIDIA's own conversion of the same clip: identical on every structured
+quantity (frames, timestamps, extrinsics, poses, 1,186 cuboids, lidar returns to
+0.0), images equal up to decoder noise (`ncore/README.md`). What remains is NuRec
+reconstruction of that store (>24 GB VRAM) and then `LOCAL_USDZ_DIR` — whose loading
+path is also verified (risk 1 above).
 
 Three honest caveats. It is still an **NVIDIA-controlled format**; each new dataset
 needs its **own converter**; and datasets lacking calibrated multi-view coverage

@@ -3,3 +3,4 @@ repo/
 __pycache__/
 out*/
 staged/
+reference/

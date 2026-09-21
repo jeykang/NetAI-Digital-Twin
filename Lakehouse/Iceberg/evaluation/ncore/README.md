@@ -79,6 +79,26 @@ conversion is run with `--camera-id` for the good cameras (this clip: rear_tele
 excluded). And this host's cameras decode at ~60 fps, so a 7-camera clip is ~2.5 min —
 fine for a Gold suite of hundreds, an overnight job for thousands.
 
+## Reference diff: our conversion vs NVIDIA's release of the same clip (2026-09-21)
+
+Access to the NCore release was granted the same day, so `compare_ncore.py` opened
+both stores of `ac73935a` with NVIDIA's loader and compared them level by level:
+
+| level | ours vs NVIDIA |
+|---|---|
+| files | same names; per-camera stores within 0.2% in size (e.g. cross_left 377.7 vs 377.1 MB); lidar 1216.1 vs 1216.4 MB; main store 1.5 vs 1.5 MB; NVIDIA has `rear_tele` (277.7 MB), which our NFS copy lost |
+| sequence meta | identical span [0, 20000001) us, `converter_version 1.0.0`, calibration/egomotion types, platform, vehicle bbox; only the three `source_*` provenance keys were empty on our side (now written by `stage_pai_clip.py`) |
+| cameras (6 shared) | 599 frames each, timestamps identical to the microsecond, `T_sensor_rig` identical |
+| decoded pixels | mean abs difference 1.0–2.1 of 255, max 13–34, 0.00–0.87% of pixels off by more than 8: decoder noise, not content |
+| lidar | 199 frames, timestamps and extrinsics identical; 337,839 / 342,443 / 339,806 ray bundles in frames 0 / 100 / 198, return distance and intensity max diff **0.0** |
+| ego poses | rig→world at nine sample times, max diff 0 |
+| cuboids | 1,186 observations on both sides, first observation identical |
+
+So the NCore mode of the serving layer reproduces NVIDIA's own conversion for the
+same clip on every structured quantity, with images equal up to the decoder. The
+`rear_tele` gap is our data loss (the April extraction bug), which NVIDIA's copy of
+the raw clip did not have.
+
 ## Files
 | file | role |
 |---|---|

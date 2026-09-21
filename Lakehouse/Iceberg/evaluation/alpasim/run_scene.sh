@@ -4,6 +4,12 @@
 #   ./run_scene.sh <policy-spec> <scene_id> [scene_id ...]
 #   ./run_scene.sh constant_velocity clipgt-01d503d4-449b-46fc-8d78-9085e70d3554
 #
+# LOCAL_USDZ_DIR=<dir> runs every *.usdz found in <dir> (recursively) instead of
+# catalog scene_ids -- AlpaSim's `local` suite, for scenes we produced ourselves.
+# The directory becomes the scene cache bind-mounted into the containers, so files
+# that live elsewhere must be hardlinked in, not symlinked. No scene_id arguments
+# are needed in this mode.
+#
 # DRIVER selects the AlpaSim driver config (default `harness`, our plugin). Set
 # DRIVER=vavam to run a native AlpaSim driver instead; the policy-spec argument is
 # then ignored, since the checkpoint comes from that driver's own config.
@@ -14,8 +20,16 @@ set -eo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRIVER="${DRIVER:-harness}"
 POLICY="${1:?usage: run_scene.sh <policy-spec> <scene_id> [...]}"; shift
-[ $# -gt 0 ] || { echo "need at least one scene_id (form: clipgt-<clip-uuid>)"; exit 2; }
+[ $# -gt 0 ] || [ -n "${LOCAL_USDZ_DIR:-}" ] || { echo "need at least one scene_id (form: clipgt-<clip-uuid>) or LOCAL_USDZ_DIR"; exit 2; }
 SCENES="$(IFS=,; echo "$*")"
+# 5. scene selection: catalog ids, or a local directory. scene_ids must be nulled
+#    explicitly in local mode because base_config.yaml carries a default scene_id,
+#    and the wizard resolves scene_ids before it falls back to the local suite.
+SCENE_ARGS=("scenes.scene_ids=[$SCENES]")
+if [ -n "${LOCAL_USDZ_DIR:-}" ]; then
+  [ $# -eq 0 ] || { echo "LOCAL_USDZ_DIR and scene_id arguments are mutually exclusive"; exit 2; }
+  SCENE_ARGS=("scenes.local_usdz_dir=$(cd "$LOCAL_USDZ_DIR" && pwd)" "scenes.scene_ids=null")
+fi
 RUN_DIR="${RUN_DIR:-$HERE/runs/$(date +%Y%m%d-%H%M%S)}"
 
 # 1. Orphaned compose stacks from an interrupted run stay up and exhaust host RAM;
@@ -51,6 +65,6 @@ exec uv run alpasim_wizard \
   services.renderer.gpus="[1]" services.driver.gpus="[1]" \
   services.physics.gpus="[1]" services.trafficsim.gpus="[1]" \
   "${CKPT_ARG[@]}" \
-  scenes.scene_ids="[$SCENES]" \
+  "${SCENE_ARGS[@]}" \
   wizard.log_dir="$RUN_DIR" \
   runtime.simulation_config.n_rollouts="${N_ROLLOUTS:-1}"

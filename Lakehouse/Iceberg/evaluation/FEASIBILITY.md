@@ -107,6 +107,17 @@ known extrinsics and ego trajectory — not a vendor dataset. That is a much bet
 fit for a multi-dataset lakehouse: "normalise any dataset into NCore" is precisely a
 lakehouse-shaped job, and it slots in as a sim-facing sibling of Bronze/Silver/Gold.
 
+**Update 2026-09-21 — the first hop of the chain is built and verified.** NVIDIA
+publishes the NCore project and the very PAI→NCore converter that produced the NCore
+release (`github.com/NVIDIA/ncore`, Apache-2.0); it runs here without Bazel
+(`evaluation/ncore/`). Its one hard requirement — offline egomotion and offline
+camera/sensor/lidar calibration — is met by 298,326 of the 306,152 corpus clips and
+31,861 of our 32,651 on-disk clips (Gold top-300: 290), because those are small
+per-chunk files in the gated main dataset our token can read. One on-disk clip was
+staged, converted (2 min, 3.0 GB) and read back by NVIDIA's own V4 loader
+(`ncore/README.md`). What remains is NuRec reconstruction of that store (>24 GB VRAM)
+and then `LOCAL_USDZ_DIR` — whose loading path is also verified (risk 1 above).
+
 Three honest caveats. It is still an **NVIDIA-controlled format**; each new dataset
 needs its **own converter**; and datasets lacking calibrated multi-view coverage
 cannot be reconstructed at all, no matter how good the labels are. Worth noting the
@@ -179,8 +190,19 @@ The generative renderer is what would decouple them.
 
 ## 5. Risks and blockers, ranked
 
-1. **UNVERIFIED, AND IT GATES EVERYTHING: can AlpaSim load self-reconstructed
-   scenes?** Its catalog is CSV-driven (`data/scenes/sim_scenes.csv`) with an
+1. ~~**UNVERIFIED, AND IT GATES EVERYTHING: can AlpaSim load self-reconstructed
+   scenes?**~~ **Resolved 2026-09-21: yes.** AlpaSim's wizard now has a `local`
+   artifact repository — `scenes.local_usdz_dir=<dir>` scans `**/*.usdz`, reads each
+   file's `metadata.yaml` for uuid/scene_id, builds a `local` suite and bind-mounts
+   the directory as the scene cache. Verified here: one cached NuRec scene
+   (`clipgt-0fd06bc3`, 26.04 artifact) hardlinked into an empty directory and
+   driven by `constant_velocity` through `alpasim/run_scene.sh` with
+   `LOCAL_USDZ_DIR=` reproduced the HuggingFace-path per-clip metrics **identically
+   on all 16 columns** (`per_clip.py` on `runs/ws1-local-cv` vs `runs/20260914-235934`).
+   Rollout wall time 2 m 24 s including start-up. The reconstruction path is
+   therefore open: anything that produces a NuRec USDZ (NCore → NuRec) can be
+   evaluated with no catalog membership. The original risk text follows for the
+   record. *Can AlpaSim load self-reconstructed scenes?* Its catalog is CSV-driven (`data/scenes/sim_scenes.csv`) with an
    `artifact_repository` column, but the only documented value is `huggingface`, and
    `docs/DATA_PIPELINE.md` covers rollout output rather than scene ingestion. If
    custom USDZ cannot be registered, Tier 2 can *never* cover our curated clips and

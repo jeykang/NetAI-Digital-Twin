@@ -254,3 +254,23 @@ per clip, and it must not be used to rank policies against each other.
 different group, on different data, through a different driver path (native AlpaSim
 rather than our harness plugin) — runs end to end and produces a coherent, separable
 score. The harness is not tied to one model.
+
+## Batch 3: 40 more scenes, n=80 (2026-09-21)
+
+Forty further NuRec scenes, chosen by a seeded shuffle of the 97 open-loop-scored clips
+that had no closed-loop result (not by any score, so the labelled set stays unbiased for
+the skip-policy work in `SKIP.md`). Native `driver=vavam`, same renderer, local A10:
+40 scenes in 25 min wall including downloads, ~38 s per scene of simulation.
+
+| VaVAM, closed-loop | n=40 (batches 1-2) | n=80 (batches 1-3) |
+|---|---|---|
+| `offroad_or_collision` | 0.650 | 0.625 |
+| `offroad_or_collision_at_fault` | 0.550 | 0.513 |
+| `collision_at_fault` | 0.225 | 0.188 |
+| `offroad` | 0.325 | 0.325 |
+| `progress_rel` | — | 0.911 |
+
+The rates are stable between halves, so the n=40 picture of the policy was not a small-
+sample artefact; what *was* is the strength of any per-clip predictor of these outcomes,
+which is the subject of `SKIP.md`. Per-clip rows for all 80 are in
+`.cl_vavam_perclip.parquet` (`alpasim/per_clip.py -o` over the three run directories).

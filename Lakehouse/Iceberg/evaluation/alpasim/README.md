@@ -80,6 +80,20 @@ job orchestration would be manual.
 Disk is the other bound: NuRec scenes are ~1.79 GB each and ~146 GB is free, so ~80
 scenes maximum.
 
+## Local scenes (our own USDZ, no catalog)
+
+`LOCAL_USDZ_DIR=<dir> ./run_scene.sh <policy-spec>` runs every `*.usdz` under
+`<dir>` (recursively) through AlpaSim's `local` artifact repository instead of the
+HuggingFace catalog — the path a self-reconstructed Gold clip would take. The
+directory becomes the scene cache bind-mounted into the containers, so files that
+live elsewhere must be **hardlinked** in (`ln`), not symlinked; `ego-hoods/` is
+mounted separately from `defines.sensordata` and is unaffected. `scene_ids` is
+nulled explicitly because `base_config.yaml` carries a default scene.
+
+Verified 2026-09-21: one cached NuRec scene run this way reproduced the
+catalog-path per-clip metrics identically on all 16 columns (`runs/ws1-local-cv`
+vs `runs/20260914-235934`, `constant_velocity`). This closes FEASIBILITY.md risk 1.
+
 ## Status
 
 Running end to end locally, in both directions:

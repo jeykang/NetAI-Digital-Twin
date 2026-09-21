@@ -168,6 +168,38 @@ store agents in a per-timestamp rig frame (NVIDIA PhysicalAI does) must lift eac
 box using the ego pose at *that box's* reference timestamp — see
 `NvidiaAdapter._agents`.
 
+## Serving, budgeting and the episode space (added 2026-09-21)
+
+Three tools sit beside the harness; none imports it or AlpaSim, they consume outputs.
+
+**`materialize.py MODE`** — serve a Gold selection in a validator's compatibility
+mode (호환 모드로 진열). `openloop` writes a clip list for `run_eval.py`; `nurec`
+builds a `LOCAL_USDZ_DIR` directory of NuRec scenes (cached ones hardlinked, missing
+ones fetched with `--download`, clips with no artifact listed as reconstruction
+candidates); `ncore` stages each clip in NVIDIA's `pai-clip-dl` layout and runs
+NVIDIA's own PAI→NCore converter (`ncore/README.md`). Every mode writes a
+`manifest.json` naming what was served and what was skipped.
+
+**`skip.py`** — the validation-budget tool. `features` joins the curation axes,
+the open-loop reference ladder and closed-loop per-clip outcomes into one table;
+`fit` evaluates a leave-one-out screen (predicted closed-loop failure) against the
+baselines as recall-vs-budget; `select` ranks every featured clip and emits the
+rollout list for a budget — the dial. Needs `.skip_venv` (numpy, pandas,
+scikit-learn). Results in `SKIP.md`.
+
+**`episodes.py`** — makes the scenario × episode space explicit: one row per
+decision window (`harness.decision_times`), Cosmos augmentation window
+(`cosmos_augmentation/batch_manifest.json`) and NuRec scene, each tagged with a
+`scenario_id` = recording condition × augmentation × validator mode. Writes
+`user_data/episodes_*.parquet`; `nvidia_ingestion/build_episode_tables.py` lands them
+as `nvidia_gold.episode` and `nvidia_gold.scenario`. Slice roots need
+`--clips-file`, because the adapter's clip list is a cache of the on-disk dataset.
+
+The curation-axis runners (`planning/conflict_runner.py`, `behavioral_runner.py`,
+`camera_perception_runner.py`) take `NFS_ROOT=<dir>` to score a slice such as
+`.av_slice_nurec` instead of the NFS subset; the NuRec slice is scored that way
+because its clips are not in the on-disk subset.
+
 ## Files
 
 | file | role |
@@ -181,6 +213,11 @@ box using the ego pose at *that box's* reference timestamp — see
 | `run_eval.py` | CLI |
 | `publish.py` | optional Iceberg write (`eval.policy_runs`) |
 | `BENCHMARKS.md` | recorded scores, cost and resources per run; model-availability notes |
+| `materialize.py` | serve a Gold selection in a compatibility mode (openloop / nurec / ncore) |
+| `skip.py` | validation-budget screen: features / fit / select |
+| `episodes.py` | scenario × episode rows for Iceberg (`nvidia_ingestion/build_episode_tables.py`) |
+| `alpasim/` | closed-loop layer: harness plugin, `run_scene.sh` (catalog or `LOCAL_USDZ_DIR`), `per_clip.py` |
+| `ncore/` | NCore v4 serving mode: staging script + vendored NVIDIA converter |
 
 `run_eval.py` deliberately has no Spark dependency — the evaluation pipeline should
 be usable by people who do not run this lakehouse. `publish.py` is the opt-in step

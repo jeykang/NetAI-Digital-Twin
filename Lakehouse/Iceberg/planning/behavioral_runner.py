@@ -28,8 +28,10 @@ import glob, io, math, os, statistics as st, time, zipfile
 import pyarrow as pa, pyarrow.parquet as pq
 
 _C = "/mnt/netai-e2e/nvidia-physicalai-av-subset"
-ROOT = _C if os.path.isdir(_C) else os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "netai-e2e", "nvidia-physicalai-av-subset")
+# NFS_ROOT overrides the dataset root (same knob as write_camera_gated.py), so the
+# axis can be scored over a local slice such as evaluation/.av_slice_nurec.
+ROOT = os.environ.get("NFS_ROOT") or (_C if os.path.isdir(_C) else os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "netai-e2e", "nvidia-physicalai-av-subset"))
 OO = f"{ROOT}/labels/obstacle.offline"
 OUT = f"{ROOT}/.behavioral"
 FRACS = [0.3, 0.5, 0.7]; WIN = 100_000

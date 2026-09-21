@@ -61,7 +61,7 @@ listed in the plan doc and were **out of scope** for the 09-21 session.
 | WS2 rollout triage (가성비) | tool built; n=80 closed-loop VaVAM; ladder-only screen AUC 0.657, recall 0.66 @50% budget | `evaluation/SKIP.md`, `skip.py`, `.skip_features.parquet`, `.cl_vavam_perclip.parquet`, `ALPASIM.md` batch 3 | batch 4 (63 unlabelled clips; `.skip_next_rollouts.txt` = the dial's 32) — mind disk; per-decision features; a second policy (Alpamayo-1.5 closed-loop needs an L40S) |
 | WS3 scenario × episode | **landed for the whole on-disk set**: `nvidia_gold.episode` 189,626 rows (187,212 decision windows over 31,202 clips, 2,364 NuRec scenes, 50 Cosmos windows), `nvidia_gold.scenario` 16 rows (3 recorded conditions × 3 serving modes + 9 augmentation classes); slice run superseded | `evaluation/episodes.py`, `nvidia_ingestion/build_episode_tables.py`, `user_data/episodes_{ondisk,nurec_slice}.parquet` | key `eval.policy_runs` rows by episode_id; a figure of the combination space; rename `validator_mode` → `serving_mode` at the next rebuild |
 | WS4 storage sizing | model + report written | `nvidia_ingestion/storage_sizing.py` → `STORAGE_SIZING.md` | two missing constants: NuRec reconstruction time per scene (L40S), size of one Cosmos variant (next A100 window) |
-| WS5 serving modes | `materialize.py` (openloop / nurec / ncore) working; NCore conversion of one Gold-eligible clip **identical to NVIDIA's release** on every structured quantity | `evaluation/ncore/README.md` (incl. reference diff), `compare_ncore.py`, `out/pai_ac73935a…`, `reference/clips/ac73935a…` | NuRec reconstruction of that store (NGC container, ≥24 GB VRAM Ampere → L40S / data-bahn L40); then `LOCAL_USDZ_DIR` run and closed-loop diff vs NVIDIA's NuRec artifact of the same clip; bulk Gold conversion on the storage cluster (~3 GB, ~2.5 min per clip) |
+| WS5 serving modes | `materialize.py` (openloop / nurec / ncore) working; NCore conversion of one Gold-eligible clip **identical to NVIDIA's release**; the NuRec hop is running: Instant NuRec works here, the NRE trainer (same image as AlpaSim's renderer) trains our store on the A10 with a no-aux config; full-quality path needs an **NGC API key** for `nre-tools-ga` (aux data) | `evaluation/ncore/README.md`, `evaluation/nurec/README.md` | when v2 finishes: `export-usdz-artifact` if not auto-exported, `LOCAL_USDZ_DIR` run vs NVIDIA's scene of the same clip (`alpasim/local_scenes_ref_ac73935a…`); get an NGC key to run `nre-tools-ga` and the prod config |
 | WS6 figure & journal draft | not started (paper work) | plan doc | needs the professor's figure source and reference doc (open questions, §7) |
 
 ## 4. Map of the repo (only what a session needs to navigate)
@@ -84,10 +84,13 @@ listed in the plan doc and were **out of scope** for the 09-21 session.
 
 ## 5. Background jobs at handoff (check before starting new GPU/NFS work)
 
-None running. The full on-disk episode pass finished 2026-09-21 02:48 (4.9 clips/s, 16
-workers) and the chained Spark landing wrote both tables at 02:49; nothing is on either
-GPU. To rebuild the tables after a schema change: rerun `episodes.py` (§8), then the
-`build_episode_tables.py` spark-submit line (§8) — `createOrReplace`, so it is idempotent.
+| job | how to check | if dead |
+|---|---|---|
+| ~~NuRec reconstruction v2~~ | finished training 07:04 but crashed in the final checkpoint hook (ground-mesh export without aux road labels); no checkpoint — see `evaluation/nurec/README.md` | superseded by v3 and v2b in orchestrator 2 |
+| **NuRec aux data** (`nre-aux-gen`, A10, `nre-tools-ga`) | `docker ps`; `evaluation/nurec/aux_ac73935a…/*.aux.*.zarr.itar` | relaunch per README (six `--camera-id`, `--segmentation-backend=mask2former`) |
+| **orchestrator 2** (`orchestrate2.sh` in the session scratchpad; log `orchestrate2.log`) — waits for aux, copies the aux stores beside the NCore data, trains **v3** (`nre-train-ac73935a_a10_prod_v3`, prod config + aux, checkpoint every 10k, mesh export off), exports its USDZ, runs the three AlpaSim variants (`alpasim/runs/v3_{ours,ours_map,nvidia}`), then **v2b** (no-aux config, same safety flags) and its variants | `pgrep -f orchestrate.sh`; the run dirs above; `evaluation/nurec/out/v3_train.log` | rerun the steps by hand from `evaluation/nurec/README.md`; `usdz_tools.py` builds the `ours_map` hybrid |
+
+The episode pass and Spark landing finished 02:48–02:49 (§3 WS3).
 
 Scratch logs from the 09-21 session live under `/tmp/claude-1000/-home-netai-jeykang-NetAI-Digital-Twin-Lakehouse-Iceberg/86cc6ea0-506f-4559-bacb-865d51bb358d/scratchpad/` and may be gone; everything that matters is in the repo docs.
 

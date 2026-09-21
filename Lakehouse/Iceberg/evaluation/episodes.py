@@ -3,7 +3,7 @@
 
 An *episode* is a time window of one clip that a validator actually scores; a
 *scenario* is the class the episode belongs to (recording condition x augmentation
-x validator mode). Both have been implicit: the harness picks decision windows in
+x validator mode). Both have been implicit: the evaluator (harness.py) picks decision windows in
 memory, the Cosmos batch manifest records agent windows, and the NuRec catalog
 decides which clips can run closed-loop. This pre-pass enumerates all three as
 rows so they can be landed in Iceberg (nvidia_ingestion/build_episode_tables.py)
@@ -19,7 +19,7 @@ Sources (each row says which):
 
 Columns follow the canonical Episode table (episode_id, from_clip_id, to_clip_id,
 frame_id_list) and add what the validators need. Runs on the host, not in Spark:
-it needs the harness adapters. Output: two parquet files under user_data/, which
+it needs the evaluator's adapters. Output: two parquet files under user_data/, which
 the spark-iceberg container sees at /user_data.
 """
 from __future__ import annotations

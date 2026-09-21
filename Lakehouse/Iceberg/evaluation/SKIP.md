@@ -1,4 +1,4 @@
-# Skip policy — which curated clips earn a closed-loop rollout (2026-09-21)
+# Rollout triage — which curated clips earn a closed-loop rollout (2026-09-21)
 
 The question from the Sep 4 call: can the validation ground skip what will predictably
 fail, and can that skipping be a tool rather than a per-run judgement? `skip.py` is the
@@ -62,7 +62,7 @@ recall 0.60 at a 50% budget; all-features 0.660; MF-PDMS alone 0.538.
 
 - More labelled scenes: 63 more open-loop-scored NuRec clips exist (`batch4`), and the
   disk holds room for one more batch after pruning the scene cache.
-- Per-decision features instead of per-clip means (the harness has them; `run_eval.py`
+- Per-decision features instead of per-clip means (the evaluator has them; `run_eval.py`
   aggregates).
 - A second policy: everything above is one policy on one dataset; a screen that holds
   for Alpamayo-1.5 closed-loop (needs an L40S) is the generality claim.

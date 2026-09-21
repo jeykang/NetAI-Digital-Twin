@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""skip.py — the validation-budget tool: which curated clips earn a closed-loop rollout.
+"""skip.py — rollout triage: which curated clips earn a closed-loop rollout.
 
 Open-loop MF-PDMS carries little per-clip information about closed-loop outcome
 (ALPASIM.md, n=40), so "run closed-loop on whatever open-loop flags" is not a
@@ -17,7 +17,7 @@ Three subcommands, all offline and CPU-only:
   select     rank every featured clip, labelled or not, and emit the rollout
              list for a budget — the input to alpasim/run_scene.sh or run_eval.py
 
-Nothing here imports the harness or AlpaSim; it consumes their outputs:
+Nothing here imports the evaluator (harness.py) or AlpaSim; it consumes their outputs:
   curation axes   <axes-root>/.conflict, .behavioral, .camera_perception
                   (planning/*_runner.py with NFS_ROOT=<axes-root>)
   open-loop       .results_<tag>_<policy>.parquet from run_eval.py

@@ -1,4 +1,6 @@
-# evaluation — Tier 1 driving-policy evaluation over the lakehouse
+# evaluation — Tier 1 driving-policy evaluator over the lakehouse
+
+Terms follow [TERMINOLOGY.md](../TERMINOLOGY.md) (evaluator, driving policy, actors, policy bridge, rollout triage, serving mode).
 
 Open-loop / pseudo-simulation scoring of a driving policy against curated slices of
 the lakehouse. Runs on every clip we hold, needs no map, no sensor data, no
@@ -69,7 +71,7 @@ velocity, and the interesting detail is *where*: its collision rate is 3.5% agai
 constant velocity's 15.8% — near-oracle safety — while its progress (EP 0.877) is
 essentially the same as the naive baseline's 0.880. It drives carefully, slightly
 conservatively. That is a believable portrait of a real planner, and it is the
-evidence that the harness measures something.
+evidence that the evaluator measures something.
 
 Note also that the MF-PDMS aggregate compresses this: 0.884 vs 0.853 is a 0.031 gap,
 while the safety term underneath differs by 4.5x. When comparing policies, read NC
@@ -90,7 +92,7 @@ Same policies on the top 60 clips by `conflict_score`:
 | oracle − constant_velocity gap | 0.096 | **0.173** | **1.8x** |
 | constant_velocity collision rate | 15.8% | **50.0%** | **3.2x** |
 
-Selecting on an agent-interaction axis makes the benchmark measurably better at
+Selecting on a traffic-interaction axis makes the benchmark measurably better at
 separating a trivial baseline from ground truth. That is the lakehouse's value
 proposition for evaluation, measured rather than asserted.
 
@@ -103,8 +105,8 @@ from ground truth". **That was my bug, not a property of the metric.**
 `decision_times()` derived its window from the **ego** span. On this dataset
 egomotion runs to ~140 s while obstacle labels and video stop at ~20 s, so **89% of
 decision points landed outside the annotated window** — scoring collisions against
-scenes containing no annotated agents, where every safety metric is trivially
-perfect. Fixing it to intersect ego ∩ agent ∩ (optionally) sensor coverage moved the
+scenes containing no annotated actors, where every safety metric is trivially
+perfect. Fixing it to intersect ego ∩ actor ∩ (optionally) sensor coverage moved the
 oracle−baseline gap from 0.010 to 0.096 and stationary's collision rate from 4.7% to
 38.6%.
 
@@ -156,21 +158,21 @@ model evaluation, or shard it.
 
 ## Adding a dataset
 
-The pipeline is multi-dataset by construction: metrics and harness see only
+The pipeline is multi-dataset by construction: metrics and evaluator see only
 `scenario.Scenario`, and nothing downstream imports a dataset module. Implement
 `scenario.DatasetAdapter` — `list_clips()` and `load(clip_id) -> Scenario` — and
-register it in `adapters.ADAPTERS`. Required source data is only **agent tracks and
+register it in `adapters.ADAPTERS`. Required source data is only **actor tracks and
 ego poses**, which every AV dataset has.
 
 The one thing an adapter must get right is the frame convention: ego poses and
-agent boxes in a single per-clip world frame, metres, yaw CCW from +x. Datasets that
-store agents in a per-timestamp rig frame (NVIDIA PhysicalAI does) must lift each
+actor boxes in a single per-clip world frame, metres, yaw CCW from +x. Datasets that
+store actors in a per-timestamp rig frame (NVIDIA PhysicalAI does) must lift each
 box using the ego pose at *that box's* reference timestamp — see
 `NvidiaAdapter._agents`.
 
 ## Serving, budgeting and the episode space (added 2026-09-21)
 
-Three tools sit beside the harness; none imports it or AlpaSim, they consume outputs.
+Three tools sit beside the evaluator; none imports it or AlpaSim, they consume outputs.
 
 **`materialize.py MODE`** — serve a Gold selection in a validator's compatibility
 mode (호환 모드로 진열). `openloop` writes a clip list for `run_eval.py`; `nurec`
@@ -180,7 +182,7 @@ candidates); `ncore` stages each clip in NVIDIA's `pai-clip-dl` layout and runs
 NVIDIA's own PAI→NCore converter (`ncore/README.md`). Every mode writes a
 `manifest.json` naming what was served and what was skipped.
 
-**`skip.py`** — the validation-budget tool. `features` joins the curation axes,
+**`skip.py`** — rollout triage, the validation-budget tool. `features` joins the curation axes,
 the open-loop reference ladder and closed-loop per-clip outcomes into one table;
 `fit` evaluates a leave-one-out screen (predicted closed-loop failure) against the
 baselines as recall-vs-budget; `select` ranks every featured clip and emits the
@@ -190,7 +192,7 @@ scikit-learn). Results in `SKIP.md`.
 **`episodes.py`** — makes the scenario × episode space explicit: one row per
 decision window (`harness.decision_times`), Cosmos augmentation window
 (`cosmos_augmentation/batch_manifest.json`) and NuRec scene, each tagged with a
-`scenario_id` = recording condition × augmentation × validator mode. Writes
+`scenario_id` = recording condition × augmentation × serving mode. Writes
 `user_data/episodes_*.parquet`; `nvidia_ingestion/build_episode_tables.py` lands them
 as `nvidia_gold.episode` and `nvidia_gold.scenario`. Slice roots need
 `--clips-file`, because the adapter's clip list is a cache of the on-disk dataset.
@@ -213,10 +215,10 @@ because its clips are not in the on-disk subset.
 | `run_eval.py` | CLI |
 | `publish.py` | optional Iceberg write (`eval.policy_runs`) |
 | `BENCHMARKS.md` | recorded scores, cost and resources per run; model-availability notes |
-| `materialize.py` | serve a Gold selection in a compatibility mode (openloop / nurec / ncore) |
+| `materialize.py` | serve a Gold selection in a serving mode (openloop / nurec / ncore) |
 | `skip.py` | validation-budget screen: features / fit / select |
 | `episodes.py` | scenario × episode rows for Iceberg (`nvidia_ingestion/build_episode_tables.py`) |
-| `alpasim/` | closed-loop layer: harness plugin, `run_scene.sh` (catalog or `LOCAL_USDZ_DIR`), `per_clip.py` |
+| `alpasim/` | closed-loop layer: policy bridge (AlpaSim plugin, `driver=harness`), `run_scene.sh` (catalog or `LOCAL_USDZ_DIR`), `per_clip.py` |
 | `ncore/` | NCore v4 serving mode: staging script + vendored NVIDIA converter |
 
 `run_eval.py` deliberately has no Spark dependency — the evaluation pipeline should

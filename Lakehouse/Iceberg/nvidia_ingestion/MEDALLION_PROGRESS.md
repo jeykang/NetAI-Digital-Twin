@@ -16,7 +16,7 @@ clips) → **Gold** (hardest edge-case clips). Built over a **~13.5 TB on-disk
 sample** (~32,986 canonical clips) of the NVIDIA PhysicalAI dataset.
 
 Gold difficulty is a **validated noisy-OR union** of a behavioral axis
-(agent-conflict from `obstacle.offline`) and a perceptual axis (darkness / low
+(traffic conflict from `obstacle.offline`) and a perceptual axis (darkness / low
 detection confidence), scoped to the sensor-covered sample → **Gold = 3,176 clips**.
 The earlier metadata-weighted composite was found anti-aligned with human-hard
 labels (OOD AUC 0.450) and re-architected. Full detail: [`progress/2026-06.md`](progress/2026-06.md).
@@ -35,12 +35,12 @@ labels (OOD AUC 0.450) and re-architected. Full detail: [`progress/2026-06.md`](
 - **[2026-05 — Perception scoring](progress/2026-05.md)** — BEVFusion multimodal
   perception made operational (mmdet3d); sampling-adequacy verdict (N=20).
 - **[2026-06 — Difficulty metric + validation](progress/2026-06.md)** —
-  driving-difficulty roadmap + gate, agent-conflict from `obstacle.offline`,
+  driving-difficulty roadmap + gate, traffic conflict from `obstacle.offline`,
   validity battery (refuted the old composite), noisy-OR union re-architecture,
   repo cleanup, **+ figures**; then (§17–§20) **camera-only perceptual axis**
   (consumer's endgame), **dual Gold** (camera + lidar difficulty), and the
   **Cosmos-Transfer augmentation** pipeline — day→night/rain/fog on the A100
-  cluster, label-preserving, with agent-window selection + a hallucination gate.
+  cluster, label-preserving, with interaction-window selection + a hallucination gate.
 
 ## How to run (quick reference)
 - **Pipeline / tiers**: see [`progress/2026-04.md`](progress/2026-04.md) §2–§3

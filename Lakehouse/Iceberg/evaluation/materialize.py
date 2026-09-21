@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""materialize.py — serve a Gold selection in a validator's compatibility mode (호환 모드로 진열).
+"""materialize.py — serve a Gold selection in a validator's serving mode (호환 모드로 진열).
 
 Gold is a selection of clips, not a file format. Each validator wants that selection
 in its own shape, so the serving step is: take a selection, emit it in a *mode*:

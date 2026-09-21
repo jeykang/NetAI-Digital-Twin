@@ -34,7 +34,7 @@ lakehouse** (Apache Iceberg + Polaris REST catalog + MinIO + Spark) that ingests
 real ~120 TB / ~300k-clip AV corpus **in place** (metadata-only registration, no data
 copy) and curates a **validated "edge-case" Gold tier** — the hardest ~10% of clips,
 with trivially-easy cases stripped. Difficulty is a **noisy-OR union of independently
-validated axes** (agent-interaction "conflict" from 3D labels; camera-perception
+validated axes** (traffic-interaction "conflict" from 3D labels; camera-perception
 degradation), each admitted only after passing a reusable **validity battery**; against
 1,740 human-flagged hard clips the curated score reaches **OOD-AUC 0.65–0.75**, versus
 **0.45 (worse than random)** for the naïve metadata composite it replaces. Because the
@@ -59,9 +59,9 @@ as a parameterized **Helm chart** with CI for reproducible cluster deployment.
    ≈0 (lidar masks it). We emit **dual Gold** scores (camera-only + lidar-fused) so one
    curation serves both a camera-only consumer and general use. (→ cosmos_augmentation/FINDINGS.md)
 3. **Label-preserving synthetic augmentation with a validity gate.** Depth-controlled
-   Cosmos day→night/rain/fog that keeps geometry/agents fixed (obstacle.offline labels
+   Cosmos day→night/rain/fog that keeps geometry/actors fixed (obstacle.offline labels
    transfer), plus an automatic gate that rejects clips where the generator *added*
-   agents (hallucination → invalid labels). (→ cosmos_augmentation/FINDINGS.md)
+   actors (hallucination → invalid labels). (→ cosmos_augmentation/FINDINGS.md)
 4. **The HPC systems substrate.** In-place medallion ingestion at PB scale with linear
    ingestion + O(1) queries; a multi-runtime GPU pipeline (containerized BEVFusion
    perception; A100 SLURM+Singularity diffusion); reproducible K8s packaging. (→ SCALABILITY_REPORT.md, BENCHMARK_REPORT.md, deploy/)
@@ -161,12 +161,12 @@ clusters (WORK_ZONES 856, PEDESTRIAN_DENSITY 380, SPECIAL_VEHICLE 260, …). It 
 difficulty but structurally *cannot* validate perceptual difficulty (which is handled
 separately, §6.5). This is the single most important caveat.
 
-### 6.4 Behavioral axis — agent-conflict  (→ FACTSHEET §4)
+### 6.4 Behavioral axis — traffic conflict  (→ FACTSHEET §4)
 From the dataset's own `obstacle.offline` 3D auto-labels (16 GB, 340 chunks, 0 failures;
 per-track boxes in ego frame with class + track_id). Signal = forward-zone
-inverse-distance agent load, multi-frame, rank-normalized, **GPU-free**. Validated
+inverse-distance actor load, multi-frame, rank-normalized, **GPU-free**. Validated
 **OOD-AUC 0.651**, concentrating where it should (pedestrian-density **0.866**, n=52).
-A **multi-axis** extension (adding closing-agent, VRU, class-diversity, rarity axes)
+A **multi-axis** extension (adding closing-actor, VRU, class-diversity, rarity axes)
 reaches **5-fold CV-AUC 0.745** — the single-axis ~0.65 is a construct ceiling, not a
 metric gap. (→ FINDINGS / behavioral_runner.py)
 
@@ -178,11 +178,11 @@ perception** (n=3,334): mean confidence 0.505→0.456 (**−10%**), detections/f
 (the goal's opposite). Fix quantified: rank-corr(score, darkness) **−0.14 → +0.61**.
 
 **The modality finding (2026-06):** the consumer's final product is **camera-only**. A
-night transform drops **camera-only** YOLO confidence **−0.43** (agents vanish) but the
+night transform drops **camera-only** YOLO confidence **−0.43** (actors vanish) but the
 **lidar-fused** BEVFusion confidence **≈0** — clean lidar masks camera degradation. So
 the fused perceptual axis is *blind* to the difficulty the final product will face. A
 **camera-only** perceptual axis was built (`camera_perception_runner.py`, YOLO front-cam
-over 33,767 clips), **agent-gated** to fix a 25%-empty-scene confound (camera-hard
+over 33,767 clips), **actor-gated** to fix a 25%-empty-scene confound (camera-hard
 27.6%→11.1%, OOD 0.43→0.58, −5,218 false positives).
 
 ### 6.6 Dual Gold  (→ FINDINGS.md §"Dual Gold")
@@ -222,22 +222,22 @@ SLURM+Singularity cluster.
 ### 8.2 Method
 Depth-controlled Cosmos-Transfer diffusion: extract a depth map from the real clip →
 prompt a target condition (night/rain/fog) → generate. **Depth control preserves 3D
-geometry + agent positions** (lighting-invariant), so `obstacle.offline` boxes + ego
+geometry + actor positions** (lighting-invariant), so `obstacle.offline` boxes + ego
 trajectory transfer → **labels stay valid**. Recipe (from a control×condition matrix):
 **depth ≫ edge** (edge retains daytime); mix night/rain/fog (night kills confidence,
-fog/rain make agents vanish).
+fog/rain make actors vanish).
 
 ### 8.3 Result (single clip, validated end-to-end)
-Photorealistic night render, geometry/agents preserved, **harder for camera-only
+Photorealistic night render, geometry/actors preserved, **harder for camera-only
 perception** (YOLO −0.22 conf, −1.67 detections). ~7 min/clip on 4× A100-40 GB (one node).
 
 ### 8.4 Safety — the label-validity story (a paper highlight)
 The first batch exposed a **hallucination bug**: content-mentioning prompts made Cosmos
-*invent* agents on sparse scenes (empty road → added taillights) → invalid labels. Two
+*invent* actors on sparse scenes (empty road → added taillights) → invalid labels. Two
 fixes, both validated: (a) **condition-only prompts** (lighting/weather, never vehicles)
 cut added detections **+0.8 → +0.10**; (b) an automatic **hallucination gate** (reject
-clips that gain detections vs the original) + **agent-window selection** (augment the
-window that actually contains agents). Full safe pipeline over 9 easy clips: **KEEP 7/9**
+clips that gain detections vs the original) + **interaction-window selection** (augment the
+window that actually contains actors). Full safe pipeline over 9 easy clips: **KEEP 7/9**
 (label-valid *and* harder, ~−1.4 detections/clip), gate auto-filtered 1 hallucination + 1
 no-op (~78% keep-rate).
 
@@ -269,12 +269,12 @@ Concrete systems work worth a subsection (→ FINDINGS.md, memory a100-cluster-a
 - **Apr 2026** — Foundational build on the real NVIDIA corpus; NFS lidar/radar recovery
   (~10.85 TB re-download); canonical schema; perception integration. (→ progress/2026-04.md)
 - **May 2026** — BEVFusion multimodal perception operational (mmdet3d). (→ progress/2026-05.md)
-- **Jun 2026** — Durable (Postgres-backed) Polaris; agent-conflict from `obstacle.offline`;
+- **Jun 2026** — Durable (Postgres-backed) Polaris; traffic conflict from `obstacle.offline`;
   the **validity battery** (refuted the old composite, 0.450); noisy-OR union
   re-architecture (Gold = 3,176). (→ progress/2026-06.md §13–16, FACTSHEET)
 - **Late Jun–Jul 2026** — Camera-only perceptual axis + the modality finding; **dual Gold**;
   **Cosmos-Transfer augmentation** validated end-to-end (recipe, hallucination gate,
-  agent-window); **K8s Helm + generalization + CI/CD**. (→ progress/2026-06.md §17–20, FINDINGS.md)
+  interaction window); **K8s Helm + generalization + CI/CD**. (→ progress/2026-06.md §17–20, FINDINGS.md)
 
 ---
 
@@ -322,7 +322,7 @@ data batches.
 6. Scalability: linear ingestion + O(1) query latency across 36× (→ SCALABILITY_REPORT).
 7. System/architecture diagram (medallion + GPU/cluster runtimes + deploy).
 8. Modality split: camera-only −0.43 vs lidar-fused ≈0 Δconf (the dual-Gold motivation).
-9. Augmentation before/after (day vs Cosmos night; agents preserved) + the hallucination
+9. Augmentation before/after (day vs Cosmos night; actors preserved) + the hallucination
    before/after (invented taillights → gated). Composites already produced.
 10. Safe-pipeline flow + keep-rate (7/9).
 

@@ -52,7 +52,7 @@ rollout that open-loop scoring never performs.**
 * give a per-clip correlation between MF-PDMS and a closed-loop score on the *same*
   scenes — the actual validation, far stronger than the 3 aggregate points above;
 * produce closed-loop numbers for policies NVIDIA does not publish (VaVAM,
-  DiffusionDrive, the reference ladder), which is where our harness adds value;
+  DiffusionDrive, the reference ladder), which is where our evaluator adds value;
 * calibrate how much open-loop coarseness costs, i.e. tell a consumer when the cheap
   metric is sufficient and when it is not.
 
@@ -151,9 +151,9 @@ lets it run. That is the structural difference the correlation is meant to quant
 ## Runner
 
 `run_scene.sh` now takes a `DRIVER` env var, so native AlpaSim drivers run through the
-same path as the harness plugin:
+same path as the policy bridge (the `harness` driver):
 
-    ./run_scene.sh constant_velocity <scene_id> ...        # harness plugin
+    ./run_scene.sh constant_velocity <scene_id> ...        # policy bridge
     DRIVER=vavam ./run_scene.sh vavam <scene_id> ...       # native driver
 
 Native drivers need their weights staged under `repo/data/drivers/<driver>/`, which is
@@ -250,16 +250,16 @@ does not need NuRec artifacts at all, and it still separates competence classes
 cheap, dataset-agnostic screen, **not** as a predictor of closed-loop driving quality
 per clip, and it must not be used to rank policies against each other.
 
-**This is the transferability result.** A second, independent agent — trained by a
+**This is the transferability result.** A second, independent driving policy — trained by a
 different group, on different data, through a different driver path (native AlpaSim
-rather than our harness plugin) — runs end to end and produces a coherent, separable
-score. The harness is not tied to one model.
+rather than our policy bridge) — runs end to end and produces a coherent, separable
+score. The evaluator is not tied to one model.
 
 ## Batch 3: 40 more scenes, n=80 (2026-09-21)
 
 Forty further NuRec scenes, chosen by a seeded shuffle of the 97 open-loop-scored clips
 that had no closed-loop result (not by any score, so the labelled set stays unbiased for
-the skip-policy work in `SKIP.md`). Native `driver=vavam`, same renderer, local A10:
+the rollout-triage work in `SKIP.md`). Native `driver=vavam`, same renderer, local A10:
 40 scenes in 25 min wall including downloads, ~38 s per scene of simulation.
 
 | VaVAM, closed-loop | n=40 (batches 1-2) | n=80 (batches 1-3) |

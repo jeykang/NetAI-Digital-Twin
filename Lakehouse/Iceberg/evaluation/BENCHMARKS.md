@@ -58,7 +58,7 @@ because a metric that ranked R1 above 1.5 would be suspect.
 - failure point: 21.48 GB of weights allocated, 227 MiB free of 22.06 GB usable,
   OOM trying to allocate a further 552 MiB inside `eager_attention_forward`.
 
-This matches NVIDIA's stated 24 GB minimum. Not a harness limitation — the policy
+This matches NVIDIA's stated 24 GB minimum. Not an evaluator limitation — the policy
 adapter loaded and ran up to the attention kernel. `AlpamayoR1Policy` in
 `policy_alpamayo.py` is complete and will run unchanged on a ≥24 GB GPU.
 
@@ -77,11 +77,11 @@ Model scores are unreadable without the ladder on the *same* clips. All 55 share
 
 Both learned models sit **+0.05 above the naive rules and -0.09 below the oracle**,
 and roughly halve constant_velocity's collision rate (9-11% vs 23.6%). So MF-PDMS
-does register learned agent-avoidance, even though it cannot separate one Alpamayo
+does register learned actor-avoidance, even though it cannot separate one Alpamayo
 generation from the next (paired test below).
 
 **`reactive_idm` does not beat `constant_velocity`** (0.794 vs 0.800) despite being
-the only non-learned policy that reacts to agents. It buys a little safety (NC 0.915
+the only non-learned policy that reacts to other actors. It buys a little safety (NC 0.915
 vs 0.903) and pays for it in progress and TTC, with an identical collision count
 (13/55). Braking for a lead vehicle in a narrow forward corridor does not help when
 collisions arrive laterally, and EP's weight of 5 punishes the caution. That
@@ -127,7 +127,7 @@ An earlier note here reported 1.5 at 0.884 against R1 at 0.851 and observed that
 matched NVIDIA's claim that 1.5 supersedes R1. **Those were different slices.** On the
 shared slice 1.5 scores 0.855, not 0.884. The slice effect (0.029) is roughly **7x the
 model effect** (0.004), so the ordering carried no information about the models. Any
-model-vs-model claim from this harness has to be paired on identical clips.
+model-vs-model claim from this evaluator has to be paired on identical clips.
 
 ### What this says about the instrument
 
@@ -148,8 +148,8 @@ The point of running VaVAM (valeoai VideoActionModel) is **not its score**. It i
 out-of-lab, out-of-architecture policy — an autoregressive video GPT plus a diffusion
 action expert, from a different group, trained on OpenDV/nuPlan/nuScenes — and,
 crucially, it consumes a **different input representation entirely**: VQ token
-indices rather than pixels or agent tracks. Getting it through the same `Policy`
-contract as the Alpamayo family is direct evidence the harness is transferable
+indices rather than pixels or actor tracks. Getting it through the same `Policy`
+contract as the Alpamayo family is direct evidence the evaluator is transferable
 rather than an Alpamayo-shaped wrapper. It ran unmodified.
 
 Its action expert emits exactly 6 steps at 2 Hz = **3.0 s**, so the whole ladder was
@@ -197,7 +197,7 @@ below the naive baseline — the expected shape. Two details are still informati
   forward sensibly. What costs it is safety (29.1% collisions) and, distinctively,
   **comfort: HC 0.627 / EC ~0.63 against ~0.98-1.00 for every other policy.** Its
   trajectories are rough. That is not a resampling artefact: at a 3 s horizon its 6
-  outputs map 1:1 onto the harness grid with no interpolation.
+  outputs map 1:1 onto the evaluator's time grid with no interpolation.
 * **It is by far the cheapest model tested** — 4.01 GB peak VRAM and a 1.75 GB
   checkpoint, against 23-26 GB for the Alpamayo family.
 

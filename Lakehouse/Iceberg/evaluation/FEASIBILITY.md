@@ -1,7 +1,7 @@
 # Driving-model evaluation pipeline — preliminary feasibility (2026-08-11)
 
 Goal: a consumer of the Gold-curated dataset should be able to evaluate a driving
-policy against a curated slice without hand-rolling a harness. Question asked:
+policy against a curated slice without hand-rolling an evaluator. Question asked:
 *is there still no closed-loop validation system that can consume this kind of
 dataset?*
 
@@ -14,7 +14,7 @@ not the tooling.
 | Component | What it is | License | Status |
 |---|---|---|---|
 | [AlpaSim](https://github.com/NVlabs/alpasim) | open-source closed-loop AV sim; gRPC policy interface, Docker Compose, pluggable renderers | **Apache-2.0** | released |
-| [AlpaGym](https://github.com/NVlabs/alpagym) | closed-loop **RL training** harness — wires AlpaSim (env) + Cosmos-RL (trainer) to a policy. **Not a successor to AlpaSim**; it sits on top of it, and is for post-training rather than evaluation | open | released |
+| [AlpaGym](https://github.com/NVlabs/alpagym) | closed-loop **RL training** framework — wires AlpaSim (env) + Cosmos-RL (trainer) to a policy. **Not a successor to AlpaSim**; it sits on top of it, and is for post-training rather than evaluation | open | released |
 | [OmniDreams](https://huggingface.co/nvidia/omni-dreams-models) | generative world-model renderer; closed-loop observations **without** per-scene reconstruction | weights published | released |
 | NuRec | Omniverse neural-reconstruction engine (3DGS / 3DGUT), real logs -> simulatable USDZ | NGC container, NVIDIA account | released |
 | [InstantNuRec](https://github.com/NVIDIA/instant-nurec) | feed-forward reconstruction, ~1.5 s per 10-20 s multi-camera scene | **Apache-2.0** | Jul 2026 |
@@ -72,7 +72,7 @@ rollout working before committing to the reconstruction pipeline.
 Three findings, in order of importance:
 
 1. **NAVSIM is non-reactive by construction.** It is "data-driven *non-reactive*
-   simulation"; v2.1+ added two-stage reactive agents and CoRL'25 added
+   simulation"; v2.1+ added two-stage "reactive agents" (NAVSIM's term for simulated traffic participants) and CoRL'25 added
    *pseudo*-simulation, explicitly positioned as a midpoint between open- and
    closed-loop. It is not a closed-loop validator, so it does not answer the ask on
    its own.
@@ -164,13 +164,13 @@ the highest-value thing to test in this whole area.
 ## 4. Proposed shape: two tiers
 
 **Tier 1 — open-loop / pseudo-sim, all 33,767 clips, available now.**
-Map-free PDMS (NC, EP, TTC, HC, EC) over the dataset's own agent tracks. No new
+Map-free PDMS (NC, EP, TTC, HC, EC) over the dataset's own actor tracks. No new
 heavy dependencies, no reconstruction, no GPU beyond the policy itself. This is the
 plug-and-play default any consumer gets on any Gold slice, and most of the code
 exists. Ceiling: no drivable-area/lane metrics, no reactivity, no counterfactuals.
 
 Tier 1 is also the tier that actually serves the multi-dataset thesis: it needs only
-agent tracks and ego poses, which every AV dataset has, and carries no NVIDIA
+actor tracks and ego poses, which every AV dataset has, and carries no NVIDIA
 dependency of any kind. Closed-loop is inherently reconstruction- or model-bound and
 will always be a curated-suite affair.
 

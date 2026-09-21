@@ -1,7 +1,7 @@
 # alpasim/ — closed-loop validation layer (detachable)
 
 **Why this exists.** MF-PDMS is open-loop and dataset-agnostic, which is the point:
-it runs on any dataset exposing agent tracks and ego poses. But it cannot separate
+it runs on any dataset exposing actor tracks and ego poses. But it cannot separate
 model generations — published closed-loop AlpaSim scores span **2.05x** across the
 three Alpamayo models where MF-PDMS spans **1.006x**, in a different order (see
 `../ALPASIM.md`). AlpaSim is the external anchor that quantifies that gap.
@@ -11,7 +11,7 @@ which exist for 1,607 clips of one dataset; making it primary would relock the s
 to NVIDIA PhysicalAI. It is a calibration layer, enabled only where NuRec exists.
 
 ## Detaching
-Delete this directory. Nothing outside it imports it; the harness has no AlpaSim
+Delete this directory. Nothing outside it imports it; the evaluator has no AlpaSim
 dependency, and `../policies.py` / `../policy_*.py` are untouched.
 
 ## Design: an AlpaSim plugin, not a fork
@@ -33,7 +33,7 @@ uv run alpasim ... driver=harness
 ## What transfers, and what cannot
 
 AlpaSim's `PredictionInput` gives cameras, command, speed, acceleration and ego pose
-history. It deliberately withholds ground-truth agent boxes — closed-loop expects the
+history. It deliberately withholds ground-truth actor boxes — closed-loop expects the
 policy to perceive them. Our `Observation` carries `agent_history`. Therefore:
 
 | policy | transfers? |
@@ -44,7 +44,7 @@ policy to perceive them. Our `Observation` carries `agent_history`. Therefore:
 | `replay_human` | **no** — oracle, needs the recorded future |
 
 The two that cannot transfer are rejected explicitly rather than silently handed an
-empty agent set, which would look like a working run producing a meaningless score.
+empty actor set, which would look like a working run producing a meaningless score.
 
 ## Prerequisites (verified on this host 2026-08-24)
 
@@ -98,7 +98,7 @@ vs `runs/20260914-235934`, `constant_velocity`). This closes FEASIBILITY.md risk
 
 Running end to end locally, in both directions:
 
-- **Harness plugin** (`driver=harness`) — our `Policy` objects drive AlpaSim. All five
+- **Policy bridge** (`driver=harness`) — our `Policy` objects drive AlpaSim. All five
   reference policies work; `constant_velocity` scored over 10 NuRec scenes.
 - **Native driver** (`DRIVER=vavam`) — an upstream AlpaSim driver runs through the same
   runner, over 40 scenes.

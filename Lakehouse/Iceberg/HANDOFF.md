@@ -59,7 +59,7 @@ listed in the plan doc and were **out of scope** for the 09-21 session.
 | WS0 self-critique & positioning | **not started** (paper work, out of scope 09-21) | plan doc §3 | the August homework; prerequisite for the journal draft |
 | WS1 local USDZ loading | **closed** — `LOCAL_USDZ_DIR=` reproduces catalog-path metrics identically on all 16 columns | `evaluation/FEASIBILITY.md` risk 1, `evaluation/alpasim/README.md`, `runs/ws1-local-cv` | none |
 | WS2 rollout triage (가성비) | tool built; n=80 closed-loop VaVAM; ladder-only screen AUC 0.657, recall 0.66 @50% budget | `evaluation/SKIP.md`, `skip.py`, `.skip_features.parquet`, `.cl_vavam_perclip.parquet`, `ALPASIM.md` batch 3 | batch 4 (63 unlabelled clips; `.skip_next_rollouts.txt` = the dial's 32) — mind disk; per-decision features; a second policy (Alpamayo-1.5 closed-loop needs an L40S) |
-| WS3 scenario × episode | slice tables landed (`nvidia_gold.episode` 822 rows, `nvidia_gold.scenario` 3); **full 32,651-clip pass was running at handoff** with the Spark landing job chained | `evaluation/episodes.py`, `nvidia_ingestion/build_episode_tables.py`, `user_data/episodes_*.parquet` | verify §5 finished; if not, rerun the pass and the Spark job (commands in §8). Then: key `eval.policy_runs` rows by episode_id; a figure of the combination space |
+| WS3 scenario × episode | **landed for the whole on-disk set**: `nvidia_gold.episode` 189,626 rows (187,212 decision windows over 31,202 clips, 2,364 NuRec scenes, 50 Cosmos windows), `nvidia_gold.scenario` 16 rows (3 recorded conditions × 3 serving modes + 9 augmentation classes); slice run superseded | `evaluation/episodes.py`, `nvidia_ingestion/build_episode_tables.py`, `user_data/episodes_{ondisk,nurec_slice}.parquet` | key `eval.policy_runs` rows by episode_id; a figure of the combination space; rename `validator_mode` → `serving_mode` at the next rebuild |
 | WS4 storage sizing | model + report written | `nvidia_ingestion/storage_sizing.py` → `STORAGE_SIZING.md` | two missing constants: NuRec reconstruction time per scene (L40S), size of one Cosmos variant (next A100 window) |
 | WS5 serving modes | `materialize.py` (openloop / nurec / ncore) working; NCore conversion of one Gold-eligible clip **identical to NVIDIA's release** on every structured quantity | `evaluation/ncore/README.md` (incl. reference diff), `compare_ncore.py`, `out/pai_ac73935a…`, `reference/clips/ac73935a…` | NuRec reconstruction of that store (NGC container, ≥24 GB VRAM Ampere → L40S / data-bahn L40); then `LOCAL_USDZ_DIR` run and closed-loop diff vs NVIDIA's NuRec artifact of the same clip; bulk Gold conversion on the storage cluster (~3 GB, ~2.5 min per clip) |
 | WS6 figure & journal draft | not started (paper work) | plan doc | needs the professor's figure source and reference doc (open questions, §7) |
@@ -84,11 +84,10 @@ listed in the plan doc and were **out of scope** for the 09-21 session.
 
 ## 5. Background jobs at handoff (check before starting new GPU/NFS work)
 
-| job | how to check | if dead |
-|---|---|---|
-| full on-disk episode pass (`episodes.py --workers 16`, ~4.8 clips/s, 32,651 clips, started 01:15) | `pgrep -f "episo""des.py"`; `user_data/episodes_ondisk.parquet` mtime and row count (expect ~190k rows, ~6 per clip) | rerun: `cd evaluation && python3 episodes.py --workers 16 --out ../user_data/episodes_ondisk.parquet --scenarios-out ../user_data/scenarios_ondisk.parquet` |
-| chained Spark landing (`/tmp/claude-1000/.../scratchpad/land_episodes.sh`, waits for the pass, then `build_episode_tables.py --inputs "/user_data/episodes_*.parquet"`) | `nvidia_gold.scenario` should show `openloop-mfpdms`, `augmented-openloop`, `closedloop-nurec` rows with tens of thousands of decision windows | run the Spark command in §8 by hand |
-| nothing on the GPUs | `nvidia-smi` | — |
+None running. The full on-disk episode pass finished 2026-09-21 02:48 (4.9 clips/s, 16
+workers) and the chained Spark landing wrote both tables at 02:49; nothing is on either
+GPU. To rebuild the tables after a schema change: rerun `episodes.py` (§8), then the
+`build_episode_tables.py` spark-submit line (§8) — `createOrReplace`, so it is idempotent.
 
 Scratch logs from the 09-21 session live under `/tmp/claude-1000/-home-netai-jeykang-NetAI-Digital-Twin-Lakehouse-Iceberg/86cc6ea0-506f-4559-bacb-865d51bb358d/scratchpad/` and may be gone; everything that matters is in the repo docs.
 
@@ -106,6 +105,7 @@ Scratch logs from the 09-21 session live under `/tmp/claude-1000/-home-netai-jey
 | NuRec catalog | 26.04: 1,607 scenes, all in clip_index; 26.01: 916, only 198 in clip_index; ~1.6–1.79 GB/scene | `evaluation/FEASIBILITY.md`, `episodes.py` output |
 | storage model | twin 5.55 TB for 3,176 Gold; store-vs-regenerate break-even ~700 years (store); regeneration ~19.5 A100-h per clip-condition | `nvidia_ingestion/STORAGE_SIZING.md` |
 | raw media per full-sensor clip | camera 235 MB (6 cams), lidar 356 MB, radar 8 MB, labels 0.4 MB | same |
+| actors at the decision time, by condition | day 37.6, dawn/dusk 32.3, night 25.6 mean actors at t0 (from `nvidia_gold.scenario`) | Spark output 2026-09-21; not yet in a doc |
 | 0-byte camera files on NFS | all 7 on-disk∩NCore∩NuRec clips have 1–2 empty cameras (April extraction bug; NVIDIA's copies are intact) | `evaluation/ncore/README.md` |
 
 ## 7. Open questions for the professor (unchanged from the plan doc)

@@ -29,6 +29,19 @@ class EgoState:
     yaw: float
     vx: float          # world-frame velocity
     vy: float
+    # Full 3D pose. Planar metrics use x/y/yaw only, but real driving models want
+    # the whole pose (Alpamayo consumes 3-D positions and 3x3 rotations), so an
+    # adapter that has it should supply it. Defaults keep 2-D adapters valid.
+    z: float = 0.0
+    qx: float = 0.0
+    qy: float = 0.0
+    qz: float = 0.0
+    qw: float = 1.0
+    # Body-frame linear acceleration. Some planners (DiffusionDrive/Transfuser's
+    # 8-dim status vector) consume it directly, and finite-differencing velocity
+    # is a poor substitute when the dataset records it.
+    ax: float = 0.0
+    ay: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -61,6 +74,13 @@ class Scenario:
     ego_length: float = 4.87
     ego_width: float = 2.12
     meta: dict = field(default_factory=dict)
+    # Adapter-supplied factory: (clip_id, max_t_us) -> SensorReader | None. Held as
+    # a callable rather than an open handle so a Scenario stays picklable for the
+    # multiprocessing pool; readers are built inside the worker, per decision point.
+    sensor_factory: Optional[object] = None
+    # Lazy () -> (t_min_us, t_max_us) for sensor coverage. Lazy because it costs an
+    # extra file read and only sensor-consuming policies need it.
+    sensor_span_fn: Optional[object] = None
 
     def ego_at(self, t_us: int) -> Optional[EgoState]:
         if not self.ego:
@@ -69,6 +89,25 @@ class Scenario:
 
     def span_us(self) -> Tuple[int, int]:
         return (self.ego[0].t_us, self.ego[-1].t_us) if self.ego else (0, 0)
+
+    def agent_span_us(self) -> Optional[Tuple[int, int]]:
+        """Time range actually covered by agent annotations.
+
+        NOT the same as the ego span: egomotion here runs to ~140 s while obstacle
+        labels and video cover only the first ~20 s. Scoring outside this window
+        silently evaluates against an empty scene, so every collision-based metric
+        comes back perfect and the benchmark looks meaningless-but-fine.
+        """
+        ts = [b.t_us for tr in self.agents.values() for b in tr]
+        return (min(ts), max(ts)) if ts else None
+
+    def sensor_span_us(self) -> Optional[Tuple[int, int]]:
+        if self.sensor_span_fn is None:
+            return None
+        try:
+            return self.sensor_span_fn()
+        except Exception:
+            return None
 
     def future_egoframe(self, t0_us: int, n: int, dt_s: float) -> List[Tuple[float, float]]:
         """The recorded future as a policy would return it: ego frame at t0.
@@ -111,6 +150,7 @@ class Observation:
     ego_width: float
     horizon_s: float
     dt_s: float
+    sensors: Optional["SensorReader"] = None   # None when the dataset has no sensors
 
     @property
     def n_steps(self) -> int:
@@ -119,6 +159,29 @@ class Observation:
     @property
     def ego_state(self) -> EgoState:
         return self.ego_history[-1]
+
+
+class SensorReader(Protocol):
+    """History-bounded access to raw sensor data for a single decision point.
+
+    Track-and-pose metrics need no sensors, but a real driving policy is a vision
+    model, so the Observation has to be able to carry pixels — otherwise the
+    "plug in your model" contract only admits planners that already have
+    perception. A reader is constructed by the adapter and bound to `max_t_us`
+    (= the decision time), and MUST refuse requests past it: that is what keeps
+    the no-future guarantee true once sensors are in play.
+
+    Optional: adapters without sensor data simply do not provide one, and
+    `Observation.sensors` stays None.
+    """
+
+    def available(self) -> Sequence[str]:
+        """Sensor names this reader can serve, e.g. camera ids."""
+        ...
+
+    def frames(self, camera: str, t_us: Sequence[int]):
+        """Nearest frame at or before each timestamp, as HxWx3 uint8 RGB arrays."""
+        ...
 
 
 class DatasetAdapter(Protocol):
@@ -137,4 +200,8 @@ class DatasetAdapter(Protocol):
 
     def load(self, clip_id: str) -> Optional[Scenario]:
         """Build a Scenario, or None if the clip lacks required data."""
+        ...
+
+    def sensor_reader(self, clip_id: str, max_t_us: int) -> Optional["SensorReader"]:
+        """Optional. Return a reader bounded to `max_t_us`, or None if unsupported."""
         ...

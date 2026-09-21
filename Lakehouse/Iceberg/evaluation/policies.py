@@ -31,6 +31,7 @@ class Policy:
     name = "policy"
     is_oracle = False
     needs_scenario = False      # oracles only; see ReplayHuman
+    needs_sensors = False       # True restricts decision times to sensor coverage
 
     def plan(self, obs: Observation) -> List[Tuple[float, float]]:
         raise NotImplementedError
@@ -77,6 +78,69 @@ class ConstantTurnRate(Policy):
         return out
 
 
+class ReactiveIDM(Policy):
+    """Rule-based car-follower: hold the observed yaw rate, brake for the lead agent.
+
+    The reference ladder was missing its most informative rung. `constant_velocity`
+    is naive because it ignores agents entirely, and the learned models sit only
+    slightly above it — but that comparison cannot separate "the model perceives
+    agents" from "the metric barely rewards it", because nothing in between existed.
+    This is a competent non-learned planner: it sees the same agent tracks the
+    metric scores against and reacts to them with IDM-style longitudinal control.
+
+    Map-free by construction — it uses only the ego corridor and agent positions, so
+    it runs on any dataset the adapter supports.
+    """
+
+    name = "reactive_idm"
+
+    # IDM-ish constants (nuPlan-flavoured, deliberately unremarkable)
+    DESIRED_GAP_S = 1.5      # time headway
+    MIN_GAP_M = 5.0
+    MAX_DECEL = 3.0          # m/s^2, comfortable
+    CORRIDOR_HALF_W = 1.8    # m, lateral half-width of the "my lane" test
+
+    def plan(self, obs):
+        e = obs.ego_state
+        speed = math.hypot(e.vx, e.vy)
+
+        hist = obs.ego_history[-5:]
+        yaw_rate = 0.0
+        if len(hist) >= 2:
+            dt_h = max(1e-3, (hist[-1].t_us - hist[0].t_us) / 1e6)
+            d = (hist[-1].yaw - hist[0].yaw + math.pi) % (2 * math.pi) - math.pi
+            yaw_rate = d / dt_h
+
+        # nearest agent ahead, in the ego frame at t0
+        c, s = math.cos(-e.yaw), math.sin(-e.yaw)
+        gap = float("inf")
+        for track in obs.agent_history.values():
+            b = track[-1]
+            dx = c * (b.x - e.x) - s * (b.y - e.y)
+            dy = s * (b.x - e.x) + c * (b.y - e.y)
+            if dx > 0 and abs(dy) < self.CORRIDOR_HALF_W + b.width / 2:
+                gap = min(gap, dx - b.length / 2 - obs.ego_length / 2)
+
+        target = speed
+        if gap < float("inf"):
+            desired = self.MIN_GAP_M + self.DESIRED_GAP_S * speed
+            if gap < desired:
+                # close the gap deficit over the horizon, bounded by comfort
+                deficit = desired - gap
+                target = max(0.0, speed - min(self.MAX_DECEL * obs.horizon_s,
+                                              deficit / max(0.5, obs.horizon_s)))
+
+        out, x, y, th, v = [], 0.0, 0.0, 0.0, speed
+        n = obs.n_steps
+        for k in range(n):
+            v += (target - speed) / n            # linear ramp to the target speed
+            th += yaw_rate * obs.dt_s
+            x += v * obs.dt_s * math.cos(th)
+            y += v * obs.dt_s * math.sin(th)
+            out.append((x, y))
+        return out
+
+
 class ReplayHuman(Policy):
     """ORACLE. Replays the recorded future — deliberately bypasses the Observation.
 
@@ -93,4 +157,4 @@ class ReplayHuman(Policy):
 
 
 BUILTIN = {p.name: p for p in (Stationary, ConstantVelocity, ConstantTurnRate,
-                               ReplayHuman)}
+                               ReactiveIDM, ReplayHuman)}

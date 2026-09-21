@@ -1,3 +1,23 @@
+.av_slice/
+.vavam/
+cluster/image/
+cluster/logs/
+cluster/results/
+cluster/slice_manifest.json
 .results_*.parquet
 .results_*.json
+.run_*.log
+.r1_smoke*.log
+.dd_smoke*.log
+.dl_r1.log
+.clip_list.json
+.av_slice_clips.txt
 __pycache__/
+
+# NuRec-aligned local sensor slice and AlpaSim run artifacts (GB-scale)
+.av_slice_nurec/
+.av_slice_nurec_clips.txt
+alpasim/runs/
+alpasim/repo/data/
+.results_nurec_*
+.corr_*

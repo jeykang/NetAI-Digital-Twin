@@ -81,7 +81,11 @@ polaris_pg_data/
 nvidia_ingestion/_ood_clips.txt
 nvidia_ingestion/_ood_clusters.csv
 planning/alpamayo/alpamayo1.5/
+planning/alpamayo/alpamayo_r1/
 planning/alpamayo/*venv*/
 
 # API keys / secrets (never commit)
 .secrets/
+
+# Local dev slice fetched from HuggingFace (fetch_slice_local.py)
+.av_root_local/

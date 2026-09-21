@@ -56,9 +56,28 @@ class NvidiaAdapter:
         self._dims: Dict[str, tuple] = {}
 
     # ── discovery ────────────────────────────────────────────────────────────
+    _CLIP_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".clip_list.json")
+
     def list_clips(self) -> Sequence[str]:
-        return sorted(os.path.basename(p).split(".")[0]
-                      for p in glob.glob(f"{self.root}/labels/egomotion/*/*.egomotion.parquet"))
+        """All clip ids, cached to disk.
+
+        The underlying glob walks ~33k files over NFS; through a Docker bind-mount
+        that took minutes and looked like a hang. Cache it — delete
+        `.clip_list.json` after the dataset changes.
+        """
+        import json
+        if os.path.exists(self._CLIP_CACHE):
+            try:
+                return json.load(open(self._CLIP_CACHE))
+            except Exception:
+                pass
+        ids = sorted(os.path.basename(p).split(".")[0]
+                     for p in glob.glob(f"{self.root}/labels/egomotion/*/*.egomotion.parquet"))
+        try:
+            json.dump(ids, open(self._CLIP_CACHE, "w"))
+        except Exception:
+            pass
+        return ids
 
     def _chunk(self, clip_id: str) -> Optional[str]:
         """Chunk id for a clip, taken from its egomotion path."""
@@ -74,8 +93,8 @@ class NvidiaAdapter:
         m = glob.glob(f"{self.root}/labels/egomotion/*/{clip_id}.egomotion.parquet")
         if not m:
             return []
-        d = pq.read_table(m[0], columns=["timestamp", "x", "y", "qx", "qy", "qz",
-                                         "qw", "vx", "vy"]).to_pydict()
+        d = pq.read_table(m[0], columns=["timestamp", "x", "y", "z", "qx", "qy", "qz",
+                                         "qw", "vx", "vy", "ax", "ay"]).to_pydict()
         out = []
         for i in range(len(d["timestamp"])):
             yaw = _yaw_from_quat(d["qx"][i], d["qy"][i], d["qz"][i], d["qw"][i])
@@ -84,7 +103,10 @@ class NvidiaAdapter:
             out.append(EgoState(int(d["timestamp"][i]), float(d["x"][i]), float(d["y"][i]),
                                 yaw,
                                 c * d["vx"][i] - s * d["vy"][i],
-                                s * d["vx"][i] + c * d["vy"][i]))
+                                s * d["vx"][i] + c * d["vy"][i],
+                                float(d["z"][i]), float(d["qx"][i]), float(d["qy"][i]),
+                                float(d["qz"][i]), float(d["qw"][i]),
+                                float(d["ax"][i]), float(d["ay"][i])))
         out.sort(key=lambda e: e.t_us)
         return out
 
@@ -159,7 +181,166 @@ class NvidiaAdapter:
         length, width = self._footprint(clip_id)
         return Scenario(clip_id=clip_id, dataset=self.name, ego=ego, agents=agents,
                         ego_length=length, ego_width=width,
-                        meta={"n_tracks": len(agents)})
+                        meta={"n_tracks": len(agents)},
+                        sensor_factory=self.sensor_reader,
+                        sensor_span_fn=lambda cid=clip_id: self.sensor_span(cid))
+
+    # ── sensors ──────────────────────────────────────────────────────────────
+    CAMERAS = ("camera_cross_left_120fov", "camera_front_wide_120fov",
+               "camera_cross_right_120fov", "camera_front_tele_30fov",
+               "camera_rear_left_70fov", "camera_rear_right_70fov",
+               "camera_rear_tele_30fov")
+
+    def sensor_span(self, clip_id: str, camera: str = "camera_front_wide_120fov"):
+        """(first, last) camera timestamp for a clip, from the .timestamps sidecar."""
+        ch = self._chunk(clip_id)
+        if ch is None:
+            return None
+        p = (f"{self.root}/camera/{camera}/{camera}.chunk_{ch}/"
+             f"{clip_id}.{camera}.timestamps.parquet")
+        if not os.path.exists(p):
+            return None
+        d = pq.read_table(p, columns=["timestamp"]).to_pydict()["timestamp"]
+        return (int(min(d)), int(max(d))) if d else None
+
+    def sensor_reader(self, clip_id: str, max_t_us: int):
+        ch = self._chunk(clip_id)
+        return None if ch is None else NvidiaSensorReader(self.root, clip_id, ch, max_t_us)
+
+
+class NvidiaSensorReader:
+    """Decodes camera frames from the local mp4s, bounded to `max_t_us`.
+
+    Each clip/camera ships a `.timestamps.parquet` sidecar mapping frame_index to
+    the same microsecond clock as egomotion and the obstacle labels, so frames can
+    be addressed by time rather than by index — which is what a policy needs and
+    what makes the history bound enforceable.
+    """
+
+    def __init__(self, root: str, clip_id: str, chunk: str, max_t_us: int):
+        self.root, self.clip_id, self.chunk = root, clip_id, chunk
+        self.max_t_us = max_t_us
+        self._ts: Dict[str, list] = {}
+
+    def available(self) -> Sequence[str]:
+        return NvidiaAdapter.CAMERAS
+
+    def _paths(self, camera: str):
+        base = f"{self.root}/camera/{camera}/{camera}.chunk_{self.chunk}/{self.clip_id}.{camera}"
+        return base + ".mp4", base + ".timestamps.parquet"
+
+    def _timestamps(self, camera: str):
+        if camera not in self._ts:
+            _, tsp = self._paths(camera)
+            if not os.path.exists(tsp):
+                self._ts[camera] = []
+            else:
+                d = pq.read_table(tsp, columns=["timestamp", "frame_index"]).to_pydict()
+                self._ts[camera] = sorted(zip(d["timestamp"], d["frame_index"]))
+        return self._ts[camera]
+
+    def lidar(self, t_us: int, sensor: str = "lidar_top_360fov"):
+        """Decoded point cloud (N,3) at or before t_us, or None.
+
+        Bounded by max_t_us like frames(). Sweep selection prefers a timestamp
+        column if the parquet has one and otherwise falls back to position within
+        the camera span — the same fractional indexing the earlier DiffusionDrive
+        runner used, kept so results stay comparable to that work.
+        """
+        import numpy as np
+        if t_us > self.max_t_us:
+            raise ValueError(f"lidar request {t_us} past decision time {self.max_t_us}")
+        p = (f"{self.root}/lidar/{sensor}/{sensor}.chunk_{self.chunk}/"
+             f"{self.clip_id}.{sensor}.parquet")
+        if not os.path.exists(p):
+            return None
+        try:
+            import DracoPy
+        except ImportError:
+            raise RuntimeError("lidar decoding needs DracoPy (present in the "
+                               "diffusiondrive-runner image)")
+        f = pq.ParquetFile(p)
+        n = f.metadata.num_rows
+        if not n:
+            return None
+        tcol = next((c for c in f.schema_arrow.names if "time" in c.lower()), None)
+
+        # Pick the sweep index WITHOUT materialising the point clouds. Each clip
+        # holds ~200 Draco blobs totalling hundreds of MB; reading them all to use
+        # one is what made the first version appear to hang over NFS.
+        if tcol:
+            ts = pq.read_table(p, columns=[tcol]).column(0).to_pylist()
+            cand = [k for k, t in enumerate(ts) if t <= t_us]
+            i = max(cand) if cand else 0
+        else:
+            cam_ts = self._timestamps("camera_front_wide_120fov")
+            if cam_ts:
+                lo, hi = cam_ts[0][0], cam_ts[-1][0]
+                frac = 0.0 if hi <= lo else max(0.0, min(1.0, (t_us - lo) / (hi - lo)))
+            else:
+                frac = 0.5
+            i = min(n - 1, int(n * frac))
+
+        # Read only the row group containing that sweep.
+        seen = 0
+        for rg in range(f.metadata.num_row_groups):
+            rows = f.metadata.row_group(rg).num_rows
+            if seen + rows > i:
+                col = f.read_row_group(rg, columns=["draco_encoded_pointcloud"]).column(0)
+                blob = col[i - seen].as_py()
+                return np.asarray(DracoPy.decode(blob).points, np.float32)
+            seen += rows
+        return None
+
+    def frame_times(self, camera: str, t_us: Sequence[int]):
+        """Actual timestamps of the frames `frames()` would return.
+
+        Alpamayo 2 consumes absolute per-frame timestamps (it derives relative time
+        and the ego-t0 offset from them), so a policy needs the real capture times,
+        not the requested ones.
+        """
+        ts = self._timestamps(camera)
+        if not ts:
+            return []
+        return [min(ts, key=lambda r: abs(r[0] - t))[0] for t in t_us]
+
+    def frames(self, camera: str, t_us: Sequence[int]):
+        import cv2
+        import numpy as np
+
+        over = [t for t in t_us if t > self.max_t_us]
+        if over:
+            raise ValueError(
+                f"SensorReader is bounded to t<={self.max_t_us}; refused {len(over)} "
+                "future request(s). A policy must not observe past its decision time.")
+        ts = self._timestamps(camera)
+        mp4, _ = self._paths(camera)
+        if not ts or not os.path.exists(mp4):
+            return []
+        # Refuse requests outside the recorded window. Nearest-frame lookup would
+        # otherwise silently clamp: a request 22 s past the end of a 20 s video
+        # returns the final frame, pairing stale pixels with fresh ego history and
+        # producing confidently wrong trajectories. Found exactly that way.
+        lo, hi = ts[0][0], ts[-1][0]
+        tol = 2 * (ts[1][0] - ts[0][0]) if len(ts) > 1 else 100_000
+        out_of_range = [t for t in t_us if t < lo - tol or t > hi + tol]
+        if out_of_range:
+            raise ValueError(
+                f"{camera} covers [{lo}, {hi}] us; refused {len(out_of_range)} "
+                f"request(s) outside it (e.g. {out_of_range[0]}). Sensor coverage is "
+                "much shorter than the egomotion track on this dataset.")
+        cap = cv2.VideoCapture(mp4)
+        out = []
+        try:
+            for t in t_us:
+                idx = min(range(len(ts)), key=lambda i: abs(ts[i][0] - t))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(ts[idx][1]))
+                ok, fr = cap.read()
+                out.append(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB) if ok
+                           else np.zeros((1080, 1920, 3), np.uint8))
+        finally:
+            cap.release()
+        return out
 
 
 ADAPTERS = {NvidiaAdapter.name: NvidiaAdapter, "nvidia": NvidiaAdapter}

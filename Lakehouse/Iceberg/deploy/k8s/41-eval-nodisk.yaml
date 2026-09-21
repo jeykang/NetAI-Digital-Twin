@@ -1,0 +1,157 @@
+# Ceph-free variant of 40-eval.yaml, for while `deny-new-e3s-recovery-storage-consumers`
+# blocks every PVC and OBC on the cluster. Nothing here touches Ceph.
+#
+# Consequences of losing the shared RWX volume:
+#   - emptyDir is per-Pod, so each Pod stages its OWN ~21 GiB of Alpamayo-R1 weights.
+#     That is the entire reason parallelism is 4 rather than 8.
+#   - prep cannot be a separate Job (its output would not be visible to the eval Pod),
+#     so staging runs as a prologue in the GPU container.
+#   - a torch-bearing base image replaces the venv: torch then lives in the image layer,
+#     pulled ONCE per node, instead of ~8 GiB inside every Pod's emptyDir.
+#
+# Disk budget against 259 GiB free on datax-l40-gpu (294 GiB total, 20 GiB used):
+#   image ~12 GiB (shared, once) + 4 x ~24 GiB = ~108 GiB -> ~150 GiB still free.
+#   6 pods -> ~156 GiB (35% free); 8 pods -> ~204 GiB (21% free, too close to the
+#   kubelet eviction threshold on a node that is shared infrastructure).
+# Raise `completions`/`parallelism`/`SHARDS` together if you accept that trade.
+#
+# Pod shape is unchanged and still conforms to enforce-partridge-l40-gpu-jobs:
+# exactly one GPU container, requests==limits==1, one exact toleration, one exact
+# required affinity term, no GPU on initContainers, no spec.nodeName.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: l40-eval-r1-nodisk
+  namespace: netai-l40-test
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: { app: l40-eval-r1-nodisk }
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: datax.dreamai.kr/partridge-placement
+                    operator: In
+                    values: ["gpu"]
+      containers:
+        - name: eval
+          # Ships torch 2.8.0 + cu128 (what alpamayo.def pins) and build tools, so
+          # deepspeed can compile its ops. The `runtime` tag omits them and risks a
+          # deepspeed install failure.
+          image: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+          env:
+            - name: E
+              value: /work
+            - name: AV_ROOT
+              value: /work/av_root
+            - name: HF_HOME
+              value: /work/hf_cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: HF_TOKEN }
+            - name: PYTHONPATH
+              value: /harness:/work/src/alpamayo_r1/src
+            - name: PYTHONNOUSERSITE
+              value: "1"
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+            - name: SHARDS
+              value: "4"
+            # Run length comes from replay, not from staging more data.
+            - name: PASSES
+              value: "10"
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              IDX="${JOB_COMPLETION_INDEX:-0}"
+              echo "[shard $IDX/$SHARDS] $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
+
+              apt-get update -qq
+              apt-get install -y -qq git ffmpeg libglib2.0-0 libgl1 libsm6 libxext6 libgomp1 >/dev/null
+              pip install -q --no-cache-dir \
+                "transformers==4.57.1" "deepspeed>=0.17.4" accelerate \
+                einops scipy pillow opencv-python-headless pyarrow numpy \
+                huggingface_hub hydra-core colorlog
+              python -c "import torch,transformers; print('torch',torch.__version__,'tf',transformers.__version__)"
+
+              # --- model sources (public repo; only the weights are gated) ---
+              mkdir -p "$E/src"
+              git clone --depth 1 https://github.com/NVlabs/alpamayo.git "$E/src/alpamayo_r1"
+
+              # --- weights: token passed explicitly, $HF_HOME/token is not picked up ---
+              # max_workers is modest on purpose: every shard pulls its own copy
+              # concurrently, so this is 4 x 21 GiB against the same HF endpoint.
+              python - <<'PY'
+              import os
+              from huggingface_hub import snapshot_download
+              print("  ->", snapshot_download("nvidia/Alpamayo-R1-10B",
+                                              token=os.environ["HF_TOKEN"], max_workers=4), flush=True)
+              PY
+
+              # --- clip slice (--prune-cache drops each chunk ZIP after extraction) ---
+              python /harness/fetch_slice_local.py \
+                --manifest /harness/slice_manifest_burnin16.json \
+                --root "$E/av_root" --token "$HF_TOKEN" --prune-cache \
+                --clips-out "$E/av_root/.clip_list.json"
+              df -h /work | tail -1
+
+              python - <<PY
+              import json, os
+              idx, n = int("$IDX"), int(os.environ["SHARDS"])
+              clips = json.load(open(os.environ["AV_ROOT"] + "/.clip_list.json"))
+              mine = clips[idx::n]
+              open("/tmp/shard.txt", "w").write("\n".join(mine))
+              print(f"[shard {idx}] {len(mine)} of {len(clips)} clips")
+              PY
+
+              # Pass 1 on a cold cache -- the ONLY comparable throughput figure.
+              echo "=== PASS 1 (cold - throughput measurement) ==="
+              python /harness/run_eval.py \
+                --dataset nvidia \
+                --policy policy_alpamayo:AlpamayoR1Policy \
+                --clips-file /tmp/shard.txt \
+                --out "/tmp/r1_shard${IDX}.parquet"
+
+              # Passes 2..N: one invocation over the shard repeated, so the model loads
+              # once. Warm cache -> sustained-load evidence only, not a measurement.
+              if [ "${PASSES:-1}" -gt 1 ]; then
+                for _ in $(seq 2 "$PASSES"); do cat /tmp/shard.txt; echo; done \
+                  | grep -v '^$' > /tmp/loop.txt
+                echo "=== PASSES 2-$PASSES (warm - sustained load, $(wc -l < /tmp/loop.txt) evaluations) ==="
+                python /harness/run_eval.py \
+                  --dataset nvidia \
+                  --policy policy_alpamayo:AlpamayoR1Policy \
+                  --clips-file /tmp/loop.txt \
+                  --out "/tmp/r1_shard${IDX}_loop.parquet"
+              fi
+              echo ">>> SHARD $IDX DONE"
+          resources:
+            requests: { nvidia.com/gpu: "1", cpu: "6", memory: "24Gi", ephemeral-storage: "26Gi" }
+            limits: { nvidia.com/gpu: "1", cpu: "10", memory: "32Gi", ephemeral-storage: "34Gi" }
+          volumeMounts:
+            - { name: work, mountPath: /work }
+            - { name: harness, mountPath: /harness }
+            - { name: dshm, mountPath: /dev/shm }
+      volumes:
+        # Node-local scratch. Dies with the Pod -- results must be read from logs, or
+        # copied out before it exits.
+        - name: work
+          emptyDir: { sizeLimit: 30Gi }
+        - name: harness
+          configMap: { name: eval-harness }
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }

@@ -1,0 +1,59 @@
+Bootstrap: docker
+From: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+
+# Alpamayo evaluation environment for the A100 cluster.
+#
+# Built LOCALLY with apptainer fakeroot and transferred — the login node cannot
+# compile or pull images (same constraint that shaped cosmos_transfer1.def).
+#
+# Env-only, deliberately: model sources, checkpoints, the staged clip slice and the
+# evaluation harness all live on /scratch and are bind-mounted at runtime, so
+# iterating on any of them never needs a rebuild.
+#
+# Why not conda: `conda create` on this cluster now fails with
+# CondaToSNonInteractiveError (Terms of Service unaccepted for repo.anaconda.com
+# pkgs/main and pkgs/r). Pip wheels avoid that gate entirely.
+#
+# NOTE flash-attn is intentionally absent — it needs nvcc at install time and the
+# models fall back (1.5 -> sdpa, R1 -> eager). Eager attention is what OOM'd R1 on
+# a 23 GB card; on 40 GB A100s there is room, but verify Alpamayo2's attention
+# support before sizing its job.
+#
+# Build:    apptainer build --fakeroot alpamayo_eval.sif alpamayo.def
+# Transfer: python evaluation/cluster/ship_sif.py
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y software-properties-common
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update && apt-get install -y \
+        python3.12 python3.12-dev python3.12-venv \
+        git wget curl ffmpeg build-essential \
+        libglib2.0-0 libgl1-mesa-glx libsm6 libxext6 libxrender-dev libgomp1 \
+        && rm -rf /var/lib/apt/lists/*
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python3
+    ln -sf /lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/libcuda.so 2>/dev/null || true
+    wget -q https://bootstrap.pypa.io/get-pip.py && python get-pip.py && rm get-pip.py
+    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install --ignore-installed --no-cache-dir blinker PyYAML
+
+    # torch matching the cluster driver (575) — cu128 wheels, same as the Cosmos env
+    python -m pip install --no-cache-dir "torch==2.8.0" torchvision \
+        --index-url https://download.pytorch.org/whl/cu128
+
+    # Alpamayo runtime + the harness's own (light) deps
+    python -m pip install --no-cache-dir \
+        "transformers==4.57.1" "deepspeed>=0.17.4" accelerate \
+        einops scipy pillow opencv-python-headless pyarrow numpy \
+        huggingface_hub hydra-core colorlog
+
+    python -c "import torch, transformers; print('torch', torch.__version__, 'tf', transformers.__version__)"
+
+%environment
+    export PYTHONNOUSERSITE=1
+    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+%labels
+    Purpose Alpamayo (1.5 / R1 / 2-Super) open-loop evaluation
+    Torch   2.8.0+cu128

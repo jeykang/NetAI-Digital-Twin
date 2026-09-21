@@ -1,0 +1,4 @@
+repo/
+scenes/
+.venv/
+__pycache__/

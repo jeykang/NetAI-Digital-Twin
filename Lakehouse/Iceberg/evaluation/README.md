@@ -23,6 +23,13 @@ python run_eval.py --policy mypkg.planner:MyPlanner --workers 8
 
 No dataset knowledge, no map handling, no I/O. That is the whole contract.
 
+A **vision** model additionally reads `obs.sensors`, a history-bounded reader that
+refuses any request past the decision time or outside recorded sensor coverage, and
+sets `needs_sensors = True` so decision points are restricted to frames that exist.
+`policy_alpamayo.py` is a worked example: it builds Alpamayo's 4-camera / 16-step
+inputs from the Observation alone, and was verified bit-identical to the model's own
+dataset loader (ego history to 0.0019 m, decoded pixels to 0).
+
 ## What it reports
 
 **MF-PDMS** — map-free PDMS, the five EPDMS sub-metrics computable without an HD map:
@@ -45,32 +52,92 @@ EPDMS number.
 
 ## Calibration — read this before trusting a score
 
-Three reference policies exist so a number is interpretable. Measured on 149 random
-clips:
+Reference policies exist so a number is interpretable. All rows below are the **same
+60 clips at the same decision points** (`--require-sensors`, which every policy in a
+comparison must use once one of them consumes sensors):
 
-| policy | MF-PDMS | NC | TTC | EP | HC | EC |
-|---|---|---|---|---|---|---|
-| `replay_human` *(oracle)* | 0.980 | 1.000 | 0.996 | 1.000 | 0.937 | 0.937 |
-| `constant_velocity` | 0.970 | 0.996 | 0.984 | 0.940 | 1.000 | 1.000 |
-| `stationary` | 0.622 | 0.970 | 0.959 | 0.007 | 1.000 | 1.000 |
+| policy | MF-PDMS | NC | TTC | EP | HC | EC | clips w/ collision |
+|---|---|---|---|---|---|---|---|
+| `replay_human` *(oracle)* | 0.949 | 0.994 | 0.871 | 1.000 | 0.997 | 0.997 | 1.8% |
+| **`alpamayo_1_5`** *(real VLA model)* | **0.884** | 0.988 | 0.825 | 0.877 | 0.993 | 0.991 | **3.5%** |
+| `constant_velocity` | 0.853 | 0.942 | 0.801 | 0.880 | 1.000 | 1.000 | 15.8% |
+| `stationary` | 0.421 | 0.690 | 0.591 | 0.035 | 1.000 | 1.000 | 38.6% |
 
-The oracle replays recorded ground truth, so it must sit at the top of the scale —
-it is a self-test, not a baseline. It has already earned its keep: the first
-implementation scored the *human's own driving* at EC=0.62, which turned out to be
-finite-difference noise (three derivatives of sampled position amplify jitter by
-1/dt^3). Comfort now uses least-squares cubic fits instead.
+The ordering is the one a working benchmark should produce: oracle > real model >
+naive > degenerate. Alpamayo-1.5-10B lands between ground truth and constant
+velocity, and the interesting detail is *where*: its collision rate is 3.5% against
+constant velocity's 15.8% — near-oracle safety — while its progress (EP 0.877) is
+essentially the same as the naive baseline's 0.880. It drives carefully, slightly
+conservatively. That is a believable portrait of a real planner, and it is the
+evidence that the harness measures something.
 
-Note how close `constant_velocity` sits to the oracle on random clips. That is not a
-bug — it is the well-known weakness of open-loop AV metrics, where 4 s of ordinary
-driving is nearly straight and ego extrapolation alone scores well. It is also the
-argument for curated eval suites, which is what the lakehouse is for.
+Note also that the MF-PDMS aggregate compresses this: 0.884 vs 0.853 is a 0.031 gap,
+while the safety term underneath differs by 4.5x. When comparing policies, read NC
+and TTC, not just the aggregate.
+
+### Curation sharpens the suite
+
+Same policies on the top 60 clips by `conflict_score`:
+
+| policy | MF-PDMS | NC | TTC | clips w/ collision |
+|---|---|---|---|---|
+| `replay_human` *(oracle)* | 0.829 | 0.883 | 0.733 | 21.7% |
+| `constant_velocity` | 0.656 | 0.739 | 0.572 | 50.0% |
+| `stationary` | 0.337 | 0.472 | 0.378 | 71.7% |
+
+| | random slice | curated slice | change |
+|---|---|---|---|
+| oracle − constant_velocity gap | 0.096 | **0.173** | **1.8x** |
+| constant_velocity collision rate | 15.8% | **50.0%** | **3.2x** |
+
+Selecting on an agent-interaction axis makes the benchmark measurably better at
+separating a trivial baseline from ground truth. That is the lakehouse's value
+proposition for evaluation, measured rather than asserted.
+
+### The bug that a real model exposed
+
+An earlier version of this README reported the random-slice oracle−baseline gap as
+**0.010** and concluded that open-loop metrics "barely separate a trivial baseline
+from ground truth". **That was my bug, not a property of the metric.**
+
+`decision_times()` derived its window from the **ego** span. On this dataset
+egomotion runs to ~140 s while obstacle labels and video stop at ~20 s, so **89% of
+decision points landed outside the annotated window** — scoring collisions against
+scenes containing no annotated agents, where every safety metric is trivially
+perfect. Fixing it to intersect ego ∩ agent ∩ (optionally) sensor coverage moved the
+oracle−baseline gap from 0.010 to 0.096 and stationary's collision rate from 4.7% to
+38.6%.
+
+Two things worth carrying forward. First, the track-only baselines could never have
+revealed this: they ran happily on empty scenes and produced plausible numbers.
+It surfaced only when a **sensor-consuming** policy asked for camera frames 22 s past
+the end of the video. Plugging in a real model is not just a demo — it exercises
+constraints that synthetic baselines cannot. Second, `NvidiaSensorReader.frames()`
+originally *clamped* out-of-range requests to the nearest frame, silently pairing
+stale pixels with fresh ego history; it now raises. Silent nearest-neighbour lookup
+across a coverage gap is exactly how confidently-wrong numbers get produced.
+
+### Known limitation: the collision false-positive floor
+
+The oracle replays recorded human driving, so its collision rate is a pure false
+positive rate: **1.8% on random clips, 21.7% on the curated slice**. Humans do not
+crash a fifth of the time in dense traffic — on crowded scenes the OBB check
+over-triggers from track jitter and box-size noise, and `metrics.no_collision` uses a
+deliberately simplified at-fault rule (it only excludes strikes from behind, since
+right-of-way needs a map). Read absolute NC against that floor, and prefer
+policy-minus-oracle deltas on the same slice over absolute values.
 
 ## Usage
 
 ```bash
-# calibrate
-python run_eval.py --policy replay_human --limit 200 --workers 8
-python run_eval.py --policy stationary   --limit 200 --workers 8
+# calibrate (add --require-sensors to match a sensor model's decision points)
+python run_eval.py --policy replay_human --limit 60 --workers 8 --require-sensors
+python run_eval.py --policy stationary   --limit 60 --workers 8 --require-sensors
+
+# a real driving model (needs the vendored Alpamayo venv; ~22 GB VRAM, workers=1)
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONPATH=. \
+  ../planning/alpamayo/alpamayo1.5/a1_5_venv/bin/python run_eval.py \
+  --policy policy_alpamayo:AlpamayoPolicy --limit 60 --workers 1 --require-sensors
 
 # a curated slice, ranked by any score column in the lakehouse
 python run_eval.py --policy constant_velocity --workers 8 \
@@ -81,9 +148,11 @@ python run_eval.py --policy constant_velocity --workers 8 \
 python publish.py .results_constant_velocity.parquet --run-id nightly-2026-08-11
 ```
 
-Cost: ~0.27 s/clip at `--workers 8`. Loading is NFS-bound (~0.94 s/clip serial);
-scoring itself is 0.016 s/clip, so workers are near-linear speedup. A 3,174-clip
-Gold tier is ~15 minutes.
+Cost: ~0.5 s/clip for track-only policies at `--workers 8` (loading is NFS-bound;
+scoring itself is 0.016 s/clip, so workers are near-linear). Alpamayo-1.5-10B is
+**26.4 s/clip** at `--workers 1` — three decision points, each a VLM rollout plus a
+diffusion action expert, on one A10 at 23.2 GB peak. Budget ~7 h for a 1,000-clip
+model evaluation, or shard it.
 
 ## Adding a dataset
 
@@ -108,8 +177,10 @@ box using the ego pose at *that box's* reference timestamp — see
 | `metrics.py` | MF-PDMS sub-metrics, OBB collision, comfort |
 | `harness.py` | decision times, no-future `Observation` construction, scoring |
 | `policies.py` | `Policy` contract + oracle and naive baselines |
+| `policy_alpamayo.py` | Alpamayo-1.5-10B (real VLA driving model) through the same contract |
 | `run_eval.py` | CLI |
 | `publish.py` | optional Iceberg write (`eval.policy_runs`) |
+| `BENCHMARKS.md` | recorded scores, cost and resources per run; model-availability notes |
 
 `run_eval.py` deliberately has no Spark dependency — the evaluation pipeline should
 be usable by people who do not run this lakehouse. `publish.py` is the opt-in step

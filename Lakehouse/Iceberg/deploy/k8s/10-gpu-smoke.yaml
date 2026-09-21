@@ -1,0 +1,53 @@
+# Node acceptance smoke test: one GPU, in the exact shape
+# `enforce-partridge-l40-gpu-jobs` demands. Run this BEFORE anything heavier --
+# it proves image pull, GPU allocation, driver/toolkit wiring and admission
+# conformance in about a minute, and it is the cheapest thing to debug.
+#
+# The shape is load-bearing; the policy rejects every deviation:
+#   - exactly ONE container requesting GPU, requests AND limits both exactly "1"
+#   - exactly ONE toleration keyed nvidia.com/gpu (Equal / "true" / NoSchedule)
+#   - exactly ONE required nodeAffinity term with ONE matchExpression
+#     (partridge-placement In [gpu]) -- no other affinity may be combined
+#   - no GPU on initContainers, no spec.nodeName (deny-partridge-direct-node-binding)
+# It only *applies* in namespace `partridge`, but conformance here is the point:
+# this is what the client's jobs will have to look like.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: l40-gpu-smoke
+  namespace: netai-l40-test
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app: l40-gpu-smoke }
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: datax.dreamai.kr/partridge-placement
+                    operator: In
+                    values: ["gpu"]
+      containers:
+        - name: smoke
+          image: nvidia/cuda:12.8.1-base-ubuntu22.04
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -e
+              nvidia-smi
+              echo "--- visible devices ---"
+              nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+              echo "SMOKE OK"
+          resources:
+            requests: { nvidia.com/gpu: "1", cpu: "1", memory: "2Gi" }
+            limits: { nvidia.com/gpu: "1", cpu: "2", memory: "4Gi" }

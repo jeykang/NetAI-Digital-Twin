@@ -1,0 +1,32 @@
+# Shared work volume: venv + model sources + weights + the clip slice + results.
+#
+# RWX because the eval fans out to 8 pods that all read the same weights and slice.
+# `dx-ceph-standard-filesystem` is the standard-tier CephFS class (the performance
+# tier is reserved, and the netai-e2e Performance->Standard migration is suspended
+# mid-copy, so nothing here should depend on that path).
+#
+# Sized for MINIMUM footprint. The pool has 121 TiB free, but it is shared and not
+# ours to fill, so the burn-in is extended by replaying a tiny slice (PASSES in
+# 40-eval.yaml) rather than by staging a large one.
+#
+#   Alpamayo-R1 weights ~21Gi  (the floor -- unavoidable)
+#   venv                 ~8Gi
+#   extracted av_root    ~1.1Gi  (16 clips)
+#   transient chunk ZIPs ~5.5Gi PEAK, not cumulative: fetch_slice_local.py runs with
+#                                --prune-cache and drops each ZIP right after extraction
+#   results              ~16Ki per shard
+# ~36Gi in flight -> 60Gi, which is headroom for a second model, not for more data.
+#
+# Do NOT move this to the performance tier: that pool is at 55.8% with 23 TiB left and
+# is what the suspended netai-e2e migration reads from.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netai-l40-work
+  namespace: netai-l40-test
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: dx-ceph-standard-filesystem
+  resources:
+    requests:
+      storage: 60Gi

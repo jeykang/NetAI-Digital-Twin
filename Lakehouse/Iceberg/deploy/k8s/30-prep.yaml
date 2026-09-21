@@ -1,0 +1,104 @@
+# One-time prep: build the venv, fetch model sources + weights, stage the clip slice.
+# CPU only -- deliberately NO GPU toleration and no GPU request, because
+# `enforce-partridge-l40-gpu-jobs` rejects a non-GPU Pod that carries either. Keeping
+# that true here means this Job transplants into `partridge` unchanged.
+#
+# Mirrors the A100 approach rather than baking an image: their runbook found "a bare
+# conda env on /scratch is enough here", which removes the build-locally-then-transfer
+# step. Same logic applies to K8s -- a venv on the RWX PVC beats a 10GB image with no
+# registry to push it to (there is no Harbor in this cluster).
+#
+# flash-attn is intentionally absent: it needs nvcc at install time, and the models
+# fall back (1.5 -> sdpa, R1 -> eager). Eager is what OOM'd R1 on a 23GB A10; the L40
+# has 46068 MiB against a measured 25.83 GB peak, so it fits.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: l40-eval-prep
+  namespace: netai-l40-test
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels: { app: l40-eval-prep }
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: prep
+          image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+          env:
+            - name: E
+              value: /work
+            # Which planned slice to stage. Default is deliberately minimal: 16 clips
+            # over 2 chunks, ~1.1 GiB kept, divides evenly across the 8 shards. Run
+            # length comes from PASSES in 40-eval.yaml, not from staging more data.
+            - name: SLICE_MANIFEST
+              value: /harness/slice_manifest_burnin16.json
+            - name: HF_HOME
+              value: /work/hf_cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: HF_TOKEN }
+            - name: PYTHONNOUSERSITE
+              value: "1"
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq software-properties-common >/dev/null
+              add-apt-repository -y ppa:deadsnakes/ppa >/dev/null
+              apt-get update -qq
+              apt-get install -y -qq python3.12 python3.12-dev python3.12-venv \
+                git wget curl ffmpeg build-essential \
+                libglib2.0-0 libgl1-mesa-glx libsm6 libxext6 libxrender-dev libgomp1 >/dev/null
+
+              # --- venv on the shared volume (built once, read by all eval pods) ---
+              if [ ! -x "$E/venv/bin/python" ]; then
+                python3.12 -m venv "$E/venv"
+                "$E/venv/bin/pip" install -q --upgrade pip setuptools wheel
+                "$E/venv/bin/pip" install -q --no-cache-dir "torch==2.8.0" torchvision \
+                  --index-url https://download.pytorch.org/whl/cu128
+                "$E/venv/bin/pip" install -q --no-cache-dir \
+                  "transformers==4.57.1" "deepspeed>=0.17.4" accelerate \
+                  einops scipy pillow opencv-python-headless pyarrow numpy \
+                  huggingface_hub hydra-core colorlog
+              fi
+              "$E/venv/bin/python" -c "import torch,transformers; print('torch',torch.__version__,'tf',transformers.__version__)"
+
+              # --- model sources (public repos; the weights are what is gated) ---
+              mkdir -p "$E/src"
+              [ -d "$E/src/alpamayo_r1" ] || \
+                git clone --depth 1 https://github.com/NVlabs/alpamayo.git "$E/src/alpamayo_r1"
+
+              # --- weights: pass token= explicitly, $HF_HOME/token was not picked up ---
+              "$E/venv/bin/python" - <<'PY'
+              import os
+              from huggingface_hub import snapshot_download
+              tok = os.environ["HF_TOKEN"]
+              for repo in ["nvidia/Alpamayo-R1-10B"]:
+                  print("  ->", snapshot_download(repo, token=tok, max_workers=8), flush=True)
+              PY
+
+              # --- clip slice: same fetch the local dev copy used ---
+              # ConfigMap keys are flat, so the harness lands unnested in /harness.
+              if [ ! -d "$E/av_root/camera" ]; then
+                "$E/venv/bin/python" /harness/fetch_slice_local.py \
+                  --manifest "$SLICE_MANIFEST" \
+                  --root "$E/av_root" --token "$HF_TOKEN" --prune-cache \
+                  --clips-out "$E/av_root/.clip_list.json"
+              fi
+              du -sh "$E/av_root" "$E/venv" "$E/hf_cache" || true
+              echo ">>> PREP OK"
+          resources:
+            requests: { cpu: "4", memory: "12Gi", ephemeral-storage: "16Gi" }
+            limits: { cpu: "8", memory: "24Gi", ephemeral-storage: "48Gi" }
+          volumeMounts:
+            - { name: work, mountPath: /work }
+            - { name: harness, mountPath: /harness }
+      volumes:
+        - name: work
+          persistentVolumeClaim: { claimName: netai-l40-work }
+        - name: harness
+          configMap: { name: eval-harness }

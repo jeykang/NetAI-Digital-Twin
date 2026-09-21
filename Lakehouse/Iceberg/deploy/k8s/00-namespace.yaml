@@ -1,0 +1,50 @@
+# Acceptance-test namespace for the new datax-l40-gpu box (8 x NVIDIA L40, 46068 MiB).
+#
+# Deliberately NOT the `partridge` namespace: that belongs to the Partridge Systems
+# data-bahn tenant, is live (17 pods / 15 services) and already at 76.5Gi of its 100Gi
+# limits.memory. Pods here nonetheless conform to the shape that
+# `enforce-partridge-l40-gpu-jobs` demands, so the workload transplants into
+# `partridge` unchanged at handover -- that conformance is the thing under test.
+#
+# The quota is self-imposed: nothing forces it, but this is a shared cluster and the
+# node is also the designated rsync runner for the netai-e2e Performance->Standard
+# migration (currently Suspended). Leaving headroom keeps a resumed copy viable.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netai-l40-test
+  labels:
+    owner: jeykang
+    purpose: l40-acceptance-test
+---
+# Quotas with `limits.*` reject any container that omits limits -- including
+# initContainers. The LimitRange below supplies defaults so that trap cannot fire
+# here (it is exactly what would have bitten the lakehouse chart in `partridge`).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: netai-l40-test-quota
+  namespace: netai-l40-test
+spec:
+  hard:
+    requests.cpu: "64"
+    limits.cpu: "88"
+    requests.memory: "200Gi"
+    limits.memory: "300Gi"
+    requests.nvidia.com/gpu: "8"
+    requests.ephemeral-storage: "256Gi"
+    limits.ephemeral-storage: "256Gi"
+    pods: "24"
+    services: "8"
+    persistentvolumeclaims: "4"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: netai-l40-test-defaults
+  namespace: netai-l40-test
+spec:
+  limits:
+    - type: Container
+      default: { cpu: "4", memory: "16Gi", ephemeral-storage: "8Gi" }
+      defaultRequest: { cpu: "500m", memory: "2Gi", ephemeral-storage: "1Gi" }

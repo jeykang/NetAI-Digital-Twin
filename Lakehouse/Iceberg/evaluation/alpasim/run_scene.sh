@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Run AlpaSim on one or more NuRec scenes with a harness Policy.
+#
+#   ./run_scene.sh <policy-spec> <scene_id> [scene_id ...]
+#   ./run_scene.sh constant_velocity clipgt-01d503d4-449b-46fc-8d78-9085e70d3554
+#
+# DRIVER selects the AlpaSim driver config (default `harness`, our plugin). Set
+# DRIVER=vavam to run a native AlpaSim driver instead; the policy-spec argument is
+# then ignored, since the checkpoint comes from that driver's own config.
+#
+# Every flag here was required to get a rollout to run; the comments say why so they
+# are not dropped by accident.
+set -eo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRIVER="${DRIVER:-harness}"
+POLICY="${1:?usage: run_scene.sh <policy-spec> <scene_id> [...]}"; shift
+[ $# -gt 0 ] || { echo "need at least one scene_id (form: clipgt-<clip-uuid>)"; exit 2; }
+SCENES="$(IFS=,; echo "$*")"
+RUN_DIR="${RUN_DIR:-$HERE/runs/$(date +%Y%m%d-%H%M%S)}"
+
+# 1. Orphaned compose stacks from an interrupted run stay up and exhaust host RAM;
+#    the renderer of the NEXT run then dies with exit 137 (SIGKILL/OOM). Always clean.
+# `|| true` matters: with `set -e`, grep finding nothing (the normal, clean case)
+# would otherwise abort the script before it ever runs.
+{ docker ps --format '{{.Names}}' | grep -E '^alpasim' || true; } | sed 's/-[a-z]*-0-1$//' | sort -u |
+  while read -r p; do docker ps -q --filter "name=^${p}-" | xargs -r docker rm -f >/dev/null 2>&1 || true; done
+
+mkdir -p "$RUN_DIR"
+cd "$HERE/repo"
+. "$HOME/.cargo/env" 2>/dev/null || true
+export HF_TOKEN="${HF_TOKEN:-$(cat ~/.cache/huggingface/token 2>/dev/null)}"
+[ -n "$HF_TOKEN" ] || { echo "HF_TOKEN required (gated NuRec dataset)"; exit 3; }
+
+# 2. defines.base_image  -> derived image that has the harness plugin INSTALLED.
+#    Mounting plugins/ is not enough: entry points need an installed distribution.
+# 3. services.*.gpus=[1] -> this host pairs a Quadro RTX 6000 (sm_75) at index 0 with
+#    an A10 (sm_86) at index 1. AlpaSim's topology hardcodes GPU 0, and NuRec kernels
+#    need Ampere+, so GPU 0 fails with "no kernel image is available".
+# 4. HARNESS_POLICY travels via model.checkpoint_path: the generated compose passes
+#    NO environment to the driver container.
+# Only the harness driver takes a policy spec; native drivers carry their own checkpoint.
+# Plain `[ ... ] && ...` would abort under `set -e` for any non-harness driver.
+CKPT_ARG=()
+if [ "$DRIVER" = harness ]; then
+  CKPT_ARG=(driver.model.checkpoint_path="$POLICY")
+fi
+
+exec uv run alpasim_wizard \
+  deploy=local topology=1gpu "driver=$DRIVER" \
+  defines.base_image=alpasim-harness-base:0.134.0 \
+  services.renderer.gpus="[1]" services.driver.gpus="[1]" \
+  services.physics.gpus="[1]" services.trafficsim.gpus="[1]" \
+  "${CKPT_ARG[@]}" \
+  scenes.scene_ids="[$SCENES]" \
+  wizard.log_dir="$RUN_DIR" \
+  runtime.simulation_config.n_rollouts="${N_ROLLOUTS:-1}"

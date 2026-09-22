@@ -196,6 +196,7 @@ Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's
 |---|---|---|---|---|---|---|---|
 | ac73935a | day / — / — (reference clip) | 29.53 | 0.06 m, rear-ended, 8 s | 0.09 m, rear-ended, 8 s | 60.1 m, off-road, 8.5 s | 38.4 m, off-road, 6 s | 2.5 min / ~3 h (shared GPU) / 2 h 05 / — |
 | bb4394e7 | day / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | pending (Docker network pool exhausted at launch; fill-in pass queued) | pending | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
+| a07e81de | day / medium / 80.0 | 28.38 | 27.4 m, clean, 16.5 s | 27.4 m, clean, 16.5 s | 68.6 m, off-road, 6.5 s | 68.5 m, off-road, 6.5 s | 2 min / 2 h 51 / 3 h 00 / 6 h 20 |
 
 ## One clip end to end
 

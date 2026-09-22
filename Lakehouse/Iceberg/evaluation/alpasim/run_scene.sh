@@ -4,6 +4,9 @@
 #   ./run_scene.sh <policy-spec> <scene_id> [scene_id ...]
 #   ./run_scene.sh constant_velocity clipgt-01d503d4-449b-46fc-8d78-9085e70d3554
 #
+# EXTRA_ARGS="key=value ..." appends further wizard/hydra overrides, word-split, e.g.
+#   EXTRA_ARGS="runtime.simulation_config.route_generator_type=RECORDED" for a map-less
+#   twin (no map.xodr: the default MAP route generator fails on it).
 # LOCAL_USDZ_DIR=<dir> runs every *.usdz found in <dir> (recursively) instead of
 # catalog scene_ids -- AlpaSim's `local` suite, for scenes we produced ourselves.
 # The directory becomes the scene cache bind-mounted into the containers, so files
@@ -38,6 +41,10 @@ RUN_DIR="${RUN_DIR:-$HERE/runs/$(date +%Y%m%d-%H%M%S)}"
 # would otherwise abort the script before it ever runs.
 { docker ps --format '{{.Names}}' | grep -E '^alpasim' || true; } | sed 's/-[a-z]*-0-1$//' | sort -u |
   while read -r p; do docker ps -q --filter "name=^${p}-" | xargs -r docker rm -f >/dev/null 2>&1 || true; done
+# 1b. Every run creates a compose network; finished runs leave theirs behind and after
+#     ~25 runs Docker refuses ("all predefined address pools have been fully subnetted").
+#     Prune only touches networks with no container attached.
+docker network prune -f >/dev/null 2>&1 || true
 
 mkdir -p "$RUN_DIR"
 cd "$HERE/repo"
@@ -67,4 +74,5 @@ exec uv run alpasim_wizard \
   "${CKPT_ARG[@]}" \
   "${SCENE_ARGS[@]}" \
   wizard.log_dir="$RUN_DIR" \
-  runtime.simulation_config.n_rollouts="${N_ROLLOUTS:-1}"
+  runtime.simulation_config.n_rollouts="${N_ROLLOUTS:-1}" \
+  ${EXTRA_ARGS:-}

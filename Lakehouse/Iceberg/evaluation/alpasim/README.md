@@ -90,6 +90,14 @@ live elsewhere must be **hardlinked** in (`ln`), not symlinked; `ego-hoods/` is
 mounted separately from `defines.sensordata` and is unaffected. `scene_ids` is
 nulled explicitly because `base_config.yaml` carries a default scene.
 
+`EXTRA_ARGS="key=value …"` appends wizard overrides to `run_scene.sh`. The one that matters
+for our own twins: `runtime.simulation_config.route_generator_type=RECORDED` drives a scene
+that has no `map.xodr` along its recorded route (the default `MAP` generator fails on it);
+the evaluator still needs the map for off-road / lane metrics and refuses the scene score
+without them — see `evaluation/nurec/README.md` ("time base" and the v3 results) for what
+our exports need before AlpaSim loads them at all.
+
+
 Verified 2026-09-21: one cached NuRec scene run this way reproduced the
 catalog-path per-clip metrics identically on all 16 columns (`runs/ws1-local-cv`
 vs `runs/20260914-235934`, `constant_velocity`). This closes FEASIBILITY.md risk 1.

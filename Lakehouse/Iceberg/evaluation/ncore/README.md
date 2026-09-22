@@ -99,6 +99,20 @@ same clip on every structured quantity, with images equal up to the decoder. The
 `rear_tele` gap is our data loss (the April extraction bug), which NVIDIA's copy of
 the raw clip did not have.
 
+## The DGX Spark (aarch64) runs this hop too — verified 2026-09-21
+
+NuRec itself (`nre-ga`, `nre-tools-ga`, AlpaSim's renderer) is amd64-only, but the
+converter is plain Python + NVDEC. On the lab's DGX Spark (GB10, aarch64, CUDA 13,
+`torch 2.14+cu130`, `PyNvVideoCodec` aarch64 wheel; `point-cloud-utils` has no aarch64
+wheel and is not needed by the converter) the same clip converted in **54 s** (2 min 10 s
+on the Quadro RTX 6000 here). `compare_ncore.py` against the x86 output: all structural
+rows identical, decoded pixels bit-identical (both NVDEC), lidar return distances differ
+by 3.05e-5 m (fp32 rounding in the aarch64 build). Setup lives in
+`~/netai-lakehouse/` on the Spark (`.venv`, `ncore/`, `staged/`, `out/`); clips are
+staged with `rsync -aL` of a `stage_pai_clip.py` directory (symlinks resolved, ~540 MB) or,
+once the NFS share is mounted there (the user is in group 1007, `nfs-common` is
+installed, port 2049 is reachable), directly.
+
 ## Files
 | file | role |
 |---|---|

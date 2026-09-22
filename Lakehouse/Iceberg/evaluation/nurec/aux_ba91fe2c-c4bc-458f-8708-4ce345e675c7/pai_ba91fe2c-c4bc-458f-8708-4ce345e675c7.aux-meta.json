@@ -1,0 +1,47 @@
+{
+    "cli": {
+        "camera_ids": [
+            "camera_cross_left_120fov",
+            "camera_cross_right_120fov",
+            "camera_front_tele_30fov",
+            "camera_front_wide_120fov",
+            "camera_rear_left_70fov",
+            "camera_rear_right_70fov"
+        ],
+        "cuboids_component_group": "default",
+        "dataset_path": "/workdir/dataset/pai_ba91fe2c-c4bc-458f-8708-4ce345e675c7.json",
+        "debug": false,
+        "depth_backend": "none",
+        "depth_input_resolution": 1036,
+        "dinov2_backend": "none",
+        "dinov2_pca_dim": -1,
+        "dinov2_width": 256,
+        "ego_mask": true,
+        "ego_mask_aggregation_method": "majority",
+        "ego_mask_camera_ids": [],
+        "ego_mask_samples_per_second": 0.2,
+        "enable_trt": true,
+        "intrinsics_component_group": "default",
+        "lidar_ids": [
+            "lidar_top_360fov"
+        ],
+        "lidar_seg_camvis": true,
+        "lidar_seg_ensemble_cuda": true,
+        "masks_component_group": "default",
+        "max_depth_m": 80.0,
+        "num_threads": "8",
+        "open_consolidated": true,
+        "output_dir": "/workdir/output",
+        "parallel_mode": false,
+        "poses_component_group": "default",
+        "relative_depth": false,
+        "seg_logits": false,
+        "segmentation_backend": "mask2former",
+        "shard_file_pattern": null,
+        "store_depth_as_png": false,
+        "store_meta": true,
+        "visualize": false,
+        "workers_per_gpu": 6,
+        "zarr_store_type": "itar"
+    }
+}

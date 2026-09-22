@@ -158,6 +158,22 @@ def main():
             report["missing"].append(f"{cam} (EMPTY source: {', '.join(empty)})")
         else:
             (report["present"] if got == 3 else report["missing"]).append(f"{cam} ({got}/3 files)")
+    # a camera whose copy is empty here is still marked present in the clip's
+    # feature_presence row, and the converter decodes every camera that row marks
+    # present -> KeyError on the missing timestamps. With --allow-empty, mark such
+    # cameras absent in the staged row so the converter builds the store from the
+    # cameras we have (the six-camera set NVIDIA's own NCore release uses lacks
+    # camera_rear_tele_30fov anyway).
+    empty_cams = [m.split(" ")[0] for m in report["missing"] if "EMPTY source" in m]
+    if empty_cams and a.allow_empty:
+        fp = f"{d}/metadata/feature_presence.parquet"
+        if os.path.exists(fp):
+            df = pd.read_parquet(fp)
+            for cam in empty_cams:
+                if cam in df.columns:
+                    df[cam] = False
+            df.to_parquet(fp)
+            report["feature_presence_overrides"] = {cam: False for cam in empty_cams}
     lp = f"{root}/lidar/lidar_top_360fov/lidar_top_360fov.chunk_{ch}/{clip}.lidar_top_360fov.parquet"
     if os.path.exists(lp):
         link(lp, f"{d}/lidar/{clip}.lidar_top_360fov.parquet", a.link); report["present"].append("lidar_top_360fov")

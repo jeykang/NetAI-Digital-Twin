@@ -168,3 +168,40 @@ instead of Transfer1's per-modality ControlNet stack) — not Edge.
 
 Full evaluation incl. the reasoning half (which IS a go):
 `planning/cosmos3_reason/FEASIBILITY.md`.
+
+## Cosmos-Transfer2.5 runs on the DGX Spark (2026-09-21)
+
+The A100 cluster is gone and Cosmos-Transfer1 ships x86-only wheels, so the augmentation
+pipeline had no home. Cosmos-Transfer2.5 (github.com/nvidia-cosmos/cosmos-transfer2.5)
+added official Blackwell + ARM inference support (Nov 2025) and installs on the lab's DGX
+Spark with `uv sync --extra=cu130` (9.3 GB venv). Gates to accept on HuggingFace with the
+lab account: `nvidia/Cosmos-Transfer2.5-2B`, `nvidia/Cosmos-Guardrail1`,
+`nvidia/Cosmos-Predict2.5-2B` (the shared tokenizer). Checkpoints are ~55 GB, fetched at
+first inference through `uvx hf download`.
+
+Measured: the official depth example (121 frames, 640x480, guardrails on) sampled in
+**49 min on the GB10** (09:03 -> 09:52 UTC, GPU at 96%, 87 W), versus 8.4 min wall on
+4 x A100-40GB for a 121-frame single-camera window with Transfer1 (E-B). The 2B model's
+65 GB fits the Spark's 121 GB unified memory; the user's LLM had to be unloaded first.
+
+Spec format maps one-to-one from our Transfer1 specs: `{"name", "prompt" (condition-only
+text), "video_path", "guidance": 3, "depth": {"control_weight": 1.0}}` with the depth
+control computed on the fly when no `control_path` is given. First run on our data: clip
+2daf9698's 121-frame agent window (1920x1080, 4 s at 30 fps) with the night prompt and the
+depth control computed on the fly — **90 min wall on the GB10** (18:53 → 20:23 KST: 1.6 min
+model load, then two 93-frame chunks of 35 steps at 720p, ~43 min each, written back at the
+input resolution; `~/netai-lakehouse/aug/out_2daf9698_night/2daf9698_night.mp4`, 4.0 MB,
+plus the depth-control video). Hallucination gate (`safety.hallucination_gate`, frames
+30/60/90, yolov8n): day_ndet 0.0 → aug_ndet 0.33, added 0.33 ≤ tol 0.34 → **passed**, but at
+the tolerance edge (one spurious box at conf 0.12 in one of three frames); `harder` is
+undefined for this window because the day trim has no detected agents at all — the clip was
+picked for the smoke run, not by the agent-window selector, so it says nothing about the
+difficulty gain. The night look itself is right (dark sky, street-lamp pools, wet-asphalt
+reflections; scene geometry preserved by the depth control).
+
+Cost constant for WS4: Transfer2.5-2B on the Spark spends ~22 GB10-minutes per second of
+single-camera 1080p video per condition, against 2.1 A100-node-minutes (4 × A100-40GB) per
+second with Transfer1 — about 10× the wall time of one A100 node, on a machine that is
+otherwise idle and needs no queue. A six-camera full-clip variant (the 235 MB assumption in
+`STORAGE_SIZING.md`) would take ~7.5 h per condition at this rate, so the Spark is a
+per-window augmentation engine, not a corpus one.

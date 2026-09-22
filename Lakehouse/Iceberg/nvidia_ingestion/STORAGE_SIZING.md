@@ -63,3 +63,12 @@ NuRec reconstruction per scene is not measured here (needs >24 GB VRAM; FEASIBIL
 | open-loop screen | 0.46 s | 0.4 h | BENCHMARKS.md, 8 workers |
 | closed-loop rollout, small policy | 33 s | 29.1 h | vavam-batch2 locally |
 | closed-loop at a 50% skip budget | — | 14.6 h | evaluation/skip.py |
+
+## Measured constants since the model was written (2026-09-21)
+
+| constant | modelled | measured | where |
+|---|---|---|---|
+| NuRec reconstruction time per 20 s scene | L40S number missing; regeneration ~19.5 A100-h per clip-condition (all steps) | **2 h 05 m of training on one A10** (30k steps, prod config + aux store, 4.0–4.4 it/s) plus ~10 min validation/export; aux-store generation on the same card came before it | `evaluation/nurec/README.md` (v3) |
+| Cosmos variant, single-camera 4 s window | 235 MB per condition for six cameras over a whole clip (assumption kept) | **4.0 MB** at 1080p/30 fps (Transfer2.5 encode), 90 min wall on the DGX Spark's GB10 ≈ 22 GB10-min per second of video per condition | `cosmos_augmentation/FINDINGS.md` |
+
+The A10 figure is a lower bound on the L40S; the Spark figure is ~10× the wall time of one 4×A100 node per second of video, on hardware that queues nothing. Neither changes the store-vs-regenerate verdict (break-even stays in the hundreds of years); they replace the two placeholders in the table above.

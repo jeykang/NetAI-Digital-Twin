@@ -1,3 +1,6 @@
 instant_nurec/
 out*/
 __pycache__/
+# nre-tools-ga aux stores (Mask2Former road semantics, lidar seg, ego masks), ~80 MB per clip;
+# twin_pipeline.sh copies them beside the NCore store (ncore/out/, ignored), which is what training reads
+aux_*/

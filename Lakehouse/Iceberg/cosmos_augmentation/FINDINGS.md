@@ -176,8 +176,11 @@ pipeline had no home. Cosmos-Transfer2.5 (github.com/nvidia-cosmos/cosmos-transf
 added official Blackwell + ARM inference support (Nov 2025) and installs on the lab's DGX
 Spark with `uv sync --extra=cu130` (9.3 GB venv). Gates to accept on HuggingFace with the
 lab account: `nvidia/Cosmos-Transfer2.5-2B`, `nvidia/Cosmos-Guardrail1`,
-`nvidia/Cosmos-Predict2.5-2B` (the shared tokenizer). Checkpoints are ~55 GB, fetched at
-first inference through `uvx hf download`.
+`nvidia/Cosmos-Predict2.5-2B` (the shared tokenizer). Checkpoints take **35 GB** on disk,
+fetched at first inference through `uvx hf download` (measured 2026-09-23 in the Spark's HF
+cache: the Cosmos-Reason1-7B text encoder 16.6 GB, Transfer2.5-2B 5.5, SigLIP + SigLIP2
+7.6, Guardrail1 3.6, Qwen3Guard-Gen-0.6B 1.5, the Predict2.5 tokenizer 0.5; an earlier
+~55 GB figure here was an estimate).
 
 Measured: the official depth example (121 frames, 640x480, guardrails on) sampled in
 **49 min on the GB10** (09:03 -> 09:52 UTC, GPU at 96%, 87 W), versus 8.4 min wall on

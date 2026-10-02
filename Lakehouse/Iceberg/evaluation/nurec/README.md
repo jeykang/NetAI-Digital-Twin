@@ -190,13 +190,17 @@ Constant velocity never looks at the images; VaVAM does. Three findings from one
 
 ### Fidelity table (twin queue, one row per clip as it lands)
 
-Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's map layers) vs NVIDIA's scene. "outcome" = offroad_or_collision / collision_rear / offroad, "t_end" = duration_frac_20s × 20 s.
+Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's map layers) vs NVIDIA's scene. "outcome" = collision / off-road / clean; the seconds are `duration_frac_20s × 20`, i.e. the span AlpaSim keeps for scoring after its truncation rules (it cuts at the first collision or off-road step *and* once the ego is ≥ 4 m from the recorded trajectory — so a fast, drifting run can show a short span and a long distance).
 
 | clip | tod / speed / NVIDIA q | PSNR | cv ours: dist, outcome, t_end | cv nvidia | VaVAM ours: dist, outcome, t_end | VaVAM nvidia | timings (convert / aux / train / total) |
 |---|---|---|---|---|---|---|---|
 | ac73935a | day / — / — (reference clip) | 29.53 | 0.06 m, rear-ended, 8 s | 0.09 m, rear-ended, 8 s | 60.1 m, off-road, 8.5 s | 38.4 m, off-road, 6 s | 2.5 min / ~3 h (shared GPU) / 2 h 05 / — |
 | bb4394e7 | day / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | pending (Docker network pool exhausted at launch; fill-in pass queued) | pending | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
 | a07e81de | day / medium / 80.0 | 28.38 | 27.4 m, clean, 16.5 s | 27.4 m, clean, 16.5 s | 68.6 m, off-road, 6.5 s | 68.5 m, off-road, 6.5 s | 2 min / 2 h 51 / 3 h 00 / 6 h 20 |
+| 0ec48454 | day / medium / 77.0 | 29.79 | 38.4 m, off-road, 1.0 s | 38.3 m, off-road, 1.0 s | 99.2 m, clean, 7.5 s | 119.0 m, clean, 9.0 s | 2 min / 2 h 46 / 3 h 08 / 6 h 24 |
+| a2bd8a78 | night / medium / 78.0 | 28.82 | 27.6 m, collision (lateral), 16.5 s | 27.7 m, collision (lateral), 16.5 s | 45.8 m, collision (lateral), 3.5 s | 43.5 m, collision (lateral), 3.5 s | 2 min / 2 h 46 / 2 h 47 / 6 h 03 |
+| abd45a30 | night / medium / 77.8 | 27.51 | 42.4 m, off-road, 0.5 s | 42.4 m, off-road, 0.5 s | 70.1 m, collision (lateral), 3.5 s | 71.0 m, collision (rear), 3.5 s | 2 min / 2 h 52 / 2 h 45 / 6 h 08 |
+| 44c3b4d5 | night / slow / 77.2 | 31.74 | 12.9 m, clean, 16.5 s | 13.0 m, clean, 16.5 s | 27.9 m, off-road, 7.5 s | 39.4 m, off-road, 10.0 s | 2 min / 2 h 52 / 2 h 43 / 6 h 05 |
 
 ## One clip end to end
 
@@ -234,4 +238,4 @@ docker run --rm --gpus '"device=1"' --shm-size=64g \
 # the aux store per docs.nvidia.com/nurec/nurec/nurec-aux-data.html, then use car2sim_6cam.yaml
 ```
 
-Gitignored: `instant_nurec/`, `out*/`.
+Gitignored: `instant_nurec/`, `out*/`, `aux_*/` (the nre-tools-ga output, ~80 MB per clip; the pipeline copies it beside the NCore store, which is what training reads).

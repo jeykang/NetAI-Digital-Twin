@@ -195,12 +195,60 @@ Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's
 | clip | tod / speed / NVIDIA q | PSNR | cv ours: dist, outcome, t_end | cv nvidia | VaVAM ours: dist, outcome, t_end | VaVAM nvidia | timings (convert / aux / train / total) |
 |---|---|---|---|---|---|---|---|
 | ac73935a | day / — / — (reference clip) | 29.53 | 0.06 m, rear-ended, 8 s | 0.09 m, rear-ended, 8 s | 60.1 m, off-road, 8.5 s | 38.4 m, off-road, 6 s | 2.5 min / ~3 h (shared GPU) / 2 h 05 / — |
-| bb4394e7 | day / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | pending (Docker network pool exhausted at launch; fill-in pass queued) | pending | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
+| bb4394e7 | day / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | 13.3 m, clean, 4.0 s | 11.0 m, collision (rear), 4.0 s | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
 | a07e81de | day / medium / 80.0 | 28.38 | 27.4 m, clean, 16.5 s | 27.4 m, clean, 16.5 s | 68.6 m, off-road, 6.5 s | 68.5 m, off-road, 6.5 s | 2 min / 2 h 51 / 3 h 00 / 6 h 20 |
 | 0ec48454 | day / medium / 77.0 | 29.79 | 38.4 m, off-road, 1.0 s | 38.3 m, off-road, 1.0 s | 99.2 m, clean, 7.5 s | 119.0 m, clean, 9.0 s | 2 min / 2 h 46 / 3 h 08 / 6 h 24 |
 | a2bd8a78 | night / medium / 78.0 | 28.82 | 27.6 m, collision (lateral), 16.5 s | 27.7 m, collision (lateral), 16.5 s | 45.8 m, collision (lateral), 3.5 s | 43.5 m, collision (lateral), 3.5 s | 2 min / 2 h 46 / 2 h 47 / 6 h 03 |
 | abd45a30 | night / medium / 77.8 | 27.51 | 42.4 m, off-road, 0.5 s | 42.4 m, off-road, 0.5 s | 70.1 m, collision (lateral), 3.5 s | 71.0 m, collision (rear), 3.5 s | 2 min / 2 h 52 / 2 h 45 / 6 h 08 |
 | 44c3b4d5 | night / slow / 77.2 | 31.74 | 12.9 m, clean, 16.5 s | 13.0 m, clean, 16.5 s | 27.9 m, off-road, 7.5 s | 39.4 m, off-road, 10.0 s | 2 min / 2 h 52 / 2 h 43 / 6 h 05 |
+| e848c843 | night / slow / 74.3 (Gold top-300) | 29.25 | 23.5 m, off-road, 0.5 s | 23.5 m, off-road, 0.5 s | 61.1 m, clean, 5.5 s | 59.4 m, clean, 5.5 s | 2 min / 2 h 50 / 2 h 41 / 6 h 00 |
+| ba91fe2c | day / slow / 83.0 | 32.48 | 1.5 m, collision (rear), 10.5 s | 1.6 m, collision (rear), 10.5 s | 74.9 m, clean, 8.0 s | 28.3 m, off-road, 4.0 s | 2 min / 2 h 49 / 2 h 56 / 6 h 16 (resumed: aux on 09-21, training on 09-23) |
+
+
+**Result (n = 9 clips, final 2026-09-24).** Constant velocity reproduces NVIDIA's scene almost
+exactly: same outcome on 9/9 clips, median |Δ distance| 0.02 m (max 0.9 m), so the ego, actor
+and map plumbing matches. VaVAM, which drives from the rendered cameras, agrees with NVIDIA's
+scene on the outcome class (collision / off-road / clean) on 7/9 clips and on the at-fault
+outcome (`offroad_or_collision_at_fault`, the rollout-triage target) on 7/9 (95 % Wilson
+interval 0.45–0.94); 6/9 agree on both. The three misses are all threshold flips rather than
+broken scenes: **bb4394e7**, NVIDIA's scene has the ego rear-ended at 4 s and ours does not
+(not at-fault either way); **abd45a30**, both collide at 3.5 s, but ours is classed lateral
+(at-fault) and NVIDIA's rear (not at-fault); **ba91fe2c**, the renders are near-identical
+frame by frame (`out/figures/ba91fe2c_vavam_ours_vs_nvidia.jpg`), but after the light turns
+green VaVAM's path crosses a lane boundary on NVIDIA's scene (off-road after 28 m) and not on
+ours (75 m clean). Distances diverge more than outcomes (median 2.4 m, max 47 m on ba91fe2c)
+and the scored span ends at the same step on 5/9. Reconstruction PSNR 27.5–32.6 dB (median
+29.5); about 6 h per clip end to end on the A10 (aux ~2 h 50, training 2 h 20–3 h 10, the rest
+< 30 min). Constant-velocity rollouts are deterministic (a repeated reference run matched to
+every decimal); VaVAM's are not, see below.
+
+**VaVAM's own sensitivity (2026-09-24): what agreement a perfect twin could reach.** VaVAM
+was rerun on NVIDIA's own 9 scenes twice more, with the same recorded-route setup:
+an exact repeat, and a run with the camera frames delivered losslessly instead of as
+quality-95 JPEG (`+runtime.simulation_config.image_format=png`, a tiny image change;
+`runs/<short>_nvidia_vavam_{rep,png}`).
+
+| comparison (n = 9 clips) | same outcome | same at-fault | both | median abs(Δ distance) |
+|---|---|---|---|---|
+| NVIDIA scene, exact repeat | 9/9 | 8/9 | 8/9 | 1.1 m (max 5.5) |
+| NVIDIA scene, PNG instead of JPEG | 8/9 | 8/9 | 7/9 | 1.9 m (max 20.4) |
+| our twin vs NVIDIA scene | 7/9 | 7/9 | 6/9 | 2.4 m (max 46.6) |
+
+- **VaVAM is stochastic in AlpaSim.** No exact repeat reproduced numerically, and one flipped
+  its at-fault outcome (bb4394e7). AlpaSim's driver seeds the random generator for the
+  Alpamayo models (`torch.manual_seed(inference_seed)`) but not for VaVAM, whose
+  `vam.action_expert` samples its trajectories from noise. So single-rollout comparisons carry run noise.
+- **Two of our three misses are clips that VaVAM flips on NVIDIA's own scene.** A
+  JPEG→PNG change flips bb4394e7 (rear-ended → clean, the same flip as our twin) and
+  abd45a30 (not at-fault → at-fault, again the same). Those two disagreements are within
+  VaVAM's own sensitivity, not evidence against the reconstruction.
+- **ba91fe2c is the one twin-specific miss.** NVIDIA's scene goes off-road in the original,
+  the repeat and the PNG run alike, while ours stays clean, a real difference between the two
+  reconstructions at that intersection.
+- So against a fair baseline (the same scene under a tiny perturbation: 7/9 on both
+  measures) our twins reach 6/9, one clip short. For future comparisons: seed VaVAM (a
+  one-line change in `vam_model.py`) and pair the seeds across twins, or compare outcome
+  distributions over several rollouts per scene (`N_ROLLOUTS`) rather than single runs.
 
 ## One clip end to end
 

@@ -1,168 +1,128 @@
-# EAD-Data Lakehouse — Hallway Wall Display
+# EAD proving ground — hallway wall display
 
-> EAD = **Evolutionary Autonomous Driving**.
+A full-screen, unattended loop for the hallway monitor: how the lab's autonomous-driving
+proving ground (검증장) turns real drives into validated verdicts on a driving policy.
+Six chapters, about 75 s per loop; every loop follows a different real clip, digital twin,
+closed-loop rollout and Cosmos window, so the screen rarely repeats.
 
-An auto-looping, full-screen **data-flow** visualization for a wall-mounted
-monitor. The story is told at the **dataset** level — a dataset is uploaded,
-ingested, curated ("trim the fat"), scored, and lands in a catalog beside other
-processed datasets — in four stages, left → right:
+| # | Chapter | On screen | Comes from |
+|---|---|---|---|
+| 01 | Collect 수집 | a real front-camera frame with camera-only detections, and that clip's LiDAR sweep | `assets/clips/` (`extract_assets.py`, NFS sample) |
+| 02 | Curate 큐레이션 | the medallion funnel, and where this clip's difficulty lands (traffic conflict, camera perception, percentile, Gold or not) | `nvidia_gold.clip_scores` via `export_scores.py` |
+| 03 | Serve 진열 | a recorded window beside its Cosmos-Transfer variant; episodes per scenario class and serving mode | `cosmos_augmentation/gate_report.json` (kept variants only), `nvidia_gold.scenario` |
+| 04 | Reconstruct 재구성 | real camera wiped against the NuRec twin render, then against the twin's depth; the twin's build timeline | `evaluation/nurec/out/<clip>_a10_prod/val`, `<clip>.twin.json` |
+| 05 | Validate 검증 | VaVAM driving our twin and NVIDIA's reconstruction of the same clip, each stopped at its scored end with the outcome | `evaluation/alpasim/runs/<clip>_{ours_map,nvidia}_vavam` |
+| 06 | Triage 선별 | the 80 closed-loop scenes in the screen's order, the 50 % budget filling in, recall vs budget | `evaluation/skip.py` via `export_triage.py` |
 
+Chapters 04 and 05 show the same twin, so a viewer sees a clip reconstructed and then driven.
+
+**Every number on screen is in `js/data.js`**, next to the doc or Iceberg table it comes
+from (`evaluation/nurec/README.md`, `SKIP.md`, `ALPASIM.md`, `MEDALLION_PROGRESS.md`,
+`nvidia_gold.*` snapshot metadata). Change a number there and in its source doc together.
+Wording follows `../TERMINOLOGY.md`. Some care taken so the screen does not overclaim:
+
+- closed-loop videos stop at the span AlpaSim scores (first collision or off-road, or ≥ 4 m
+  off the recorded path); past it the renders leave the reconstructed area and fall apart;
+- the twin's validation frames are also training views, so the wall says "same viewpoint as
+  the real camera", not "held-out view";
+- only Cosmos variants the hallucination gate kept (43 of 50) are shown;
+- the Gold count shown is the documented 3,176; the live camera-axis cut used for the
+  per-clip badge gives 3,174–3,177 depending on tie handling;
+- twins show country and season, not day/night: `hour_of_day` disagrees with the frames for
+  some clips (ba91fe2c is tagged 02:00 and filmed in daylight).
+
+## Serve it
+
+nginx serves this folder. The `demo-wall` service lives in the gitignored
+`docker-compose.override.yml`; to recreate it:
+
+```yaml
+services:
+  demo-wall:
+    image: nginx:alpine
+    container_name: demo-wall
+    restart: unless-stopped
+    ports: ["8090:80"]
+    volumes: ["./demo_wall:/usr/share/nginx/html:ro"]
 ```
-  01 Ingest  →  02 Curate  →  03 GPU Perception  →  04 Serve
-  dataset       trim the fat     BEVFusion + YOLO     dataset catalog
-  uploaded      13 TB → 16 GB    on 2× GPU            (PhysicalAI · KAIST ·
-  → NFS         Bronze/Silver/Gold                     nuScenes · Cosmos)
-```
-
-The lakehouse is genuinely multi-dataset: **NVIDIA PhysicalAI** is the fully
-processed flagship (all real figures); **KAIST E2E**, **nuScenes**, and **NVIDIA
-Cosmos** appear in the Serve-stage catalog with honest status badges (Active /
-Ingesting / Benchmark / Synthetic). Per-clip LiDAR + camera + detections still
-appear in the GPU stage as a representative *sample* of the active dataset. Edit
-the `catalog` / `active_dataset` / `curate` blocks in `js/data.js` to adjust.
-
-It is built to run **unattended and permanently**:
-
-- **Pure HTML / CSS / Canvas** — no React, no WebGL libs, no CDN, no backend.
-  Nothing to break on the wall; works with no internet.
-- **Manifest-driven, so it doesn't look like a fixed loop.** If a real-clip
-  asset library exists (`assets/clips/manifest.json`), every loop streams a
-  *different* real clip through the pipeline — new dashcam frame, new decoded
-  LiDAR sweep, new metadata, new difficulty score. Counters tick continuously
-  as if data is still arriving.
-- **Always-valid fallback.** With no manifest it plays three baked real
-  exemplar frames + a procedural LiDAR sweep, so the screen is never blank.
-
-The autonomous-driving subject is unmistakable: real dashcam frames, a rotating
-360° LiDAR point cloud with a sweeping scan line, detection boxes, sensor-suite
-badges (7 cameras · LiDAR · 19 radar · egomotion), and a per-clip difficulty score.
-
----
-
-## 1. Serve it (the display half)
-
-The `demo-wall` service is defined in `docker-compose.override.yml`:
 
 ```bash
-cd Lakehouse/Iceberg
-docker compose up -d demo-wall
+docker compose up -d demo-wall          # from Lakehouse/Iceberg
+chromium --kiosk --noerrdialogs --disable-infobars --incognito http://<server-ip>:8090
 ```
 
-Then on the **demo PC**, open a browser full-screen (kiosk) at:
+The page reloads itself once a day to pick up rebuilt media. A browser that still runs the
+pre-October page needs one manual reload (F5). Turn off the demo PC's screen blanking
+(`xset s off -dpms`).
 
-```
-http://<server-ip>:8090
-```
+## Refresh the data
 
-Find `<server-ip>` with `ip -4 addr` on the server. The page auto-starts; no
-clicks needed. For a true kiosk:
+Run from `Lakehouse/Iceberg`. Steps 1–2 export data from environments the wall venv does not
+have; step 4 builds the videos (only missing or stale ones) and `assets/media/media.js`.
 
 ```bash
-# Chrome/Chromium kiosk, auto-fullscreen, no chrome UI, no screensaver
-chromium --kiosk --noerrdialogs --disable-infobars \
-         --incognito http://<server-ip>:8090
+# 0. once: the wall venv
+python3 -m venv demo_wall/.venv && demo_wall/.venv/bin/pip install -r demo_wall/requirements.txt
+
+# 1. Gold difficulty snapshot (inside the Spark container; reads Iceberg, not NFS)
+docker cp demo_wall/export_scores.py spark-iceberg:/tmp/export_scores.py
+docker exec -w /opt/spark spark-iceberg /opt/spark/bin/spark-submit /tmp/export_scores.py
+#    -> user_data/wall_scores.{parquet,json}
+
+# 2. rollout-triage ranking (refuses to write if it no longer reproduces SKIP.md)
+evaluation/.skip_venv/bin/python demo_wall/export_triage.py      # -> user_data/wall_triage.json
+
+# 3. optional: a fresh real-clip library (needs NFS; --yolo adds detections)
+demo_wall/.venv/bin/python demo_wall/extract_assets.py --n 2000 --yolo
+
+# 4. media: twins, closed-loop pairs, Cosmos pairs, clip annotation
+demo_wall/.venv/bin/python demo_wall/build_media.py              # --force re-encodes everything
 ```
 
-Disable the demo PC's screen blanking (`xset s off -dpms`).
+New twins (`evaluation/nurec/twin_pipeline.sh`) appear on the wall after step 4: the builder
+finds every `nurec/out/<clip>.twin.json` with validation frames and VaVAM runs. The Cosmos
+variants are read from the PDSW'26 data bundle (`--variants`, default
+`~/jeykang/pdsw26-artifact-data/variants`). Generated files (`assets/clips/`,
+`assets/media/`) are gitignored.
 
----
+`extract_assets.py` writes a manifest of the clips it extracted in that run only; the
+library on the server (16,568 clips) came from one large run.
 
-## 2. Make it "live" with real clips (recommended)
-
-This builds the real-clip playlist so each loop is a different clip. It reads
-the NFS subset on the **server**, so run it on the server.
-
-### Install the extractor deps (one-time)
+## Portable / USB copy
 
 ```bash
-cd Lakehouse/Iceberg/demo_wall
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt          # av DracoPy pyarrow numpy pillow
-# optional extras:
-pip install ultralytics                    # real YOLOv8 2D detections  (--yolo)
-pip install "trino[sqlalchemy]"            # real Gold difficulty scores (--trino)
+demo_wall/.venv/bin/python demo_wall/build_portable.py --no-extract            # 500 clips, ~210 MB
+demo_wall/.venv/bin/python demo_wall/build_portable.py --all --out /media/usb/wall
 ```
 
-### Extract ~40 real clips
+Double-click `index.html` in the copy (or `run_windows.bat` / `run_linux.sh` for kiosk
+mode). Clouds and the manifest are `<script>` files, so it runs from `file://` with no
+server. Each clip adds ~0.25 MB and one loop; the media library adds a fixed ~90 MB. The
+default output, `../demo_wall_portable/`, is replaced on every build.
 
-```bash
-# from Lakehouse/Iceberg  (note --nfs default is ./netai-e2e/...):
-python demo_wall/extract_assets.py --n 40 --yolo --trino
-```
+## Preview and test
 
-Outputs into `demo_wall/assets/clips/`:
-`<clip_id>.jpg` (frame), `<clip_id>.bin` (Float32 xyz LiDAR), and `manifest.json`.
-The running nginx serves them immediately — just refresh the wall browser.
+| URL | Effect |
+|---|---|
+| `?ch=validate&hold=1` | open on one chapter and stay there |
+| `?speed=5` | run the loop five times faster (soak tests) |
 
-Re-run anytime (e.g. nightly via cron) to rotate in a fresh set of clips:
-
-```bash
-0 4 * * *  cd /path/to/Lakehouse/Iceberg && demo_wall/.venv/bin/python demo_wall/extract_assets.py --n 60 --yolo --trino
-```
-
-If `--nfs` is wrong, the script tells you "no candidates" — point it at whichever
-of `./netai-e2e` or `./netai-e2e-orig` holds the dataset.
-
----
-
-## 2b. Portable / USB build (no server, offline)
-
-If the wall PC can't reach this server, build a fully self-contained copy that
-runs by **double-clicking `index.html`** — no web server, no internet, no Chrome
-flags. It inlines the manifest + LiDAR clouds as JavaScript (browsers block
-`fetch()` under `file://`, so inlining is what makes a USB copy work).
-
-```bash
-# after extract_assets.py has populated assets/clips/
-python demo_wall/build_portable.py             # default: up to 500 clips (~4.6 h loop)
-python demo_wall/build_portable.py --size 1500  # ~1.5 GB, ~2.7-day non-repeating loop
-python demo_wall/build_portable.py --clips 2000 # exactly ~2000 clips
-python demo_wall/build_portable.py --all        # package the ENTIRE extracted library
-```
-
-Copy the whole `demo_wall_portable/` folder to the USB stick. On the demo PC:
-
-- **Easiest:** double-click `index.html`, then press **F11** for full screen.
-- **Kiosk:** `run_windows.bat` (Windows) or `./run_linux.sh` (Linux) — launches
-  Chrome full-screen automatically.
-
-**How it scales:** the manifest stays tiny; each clip's LiDAR cloud is a small
-per-clip `*.cloud.js` lazy-loaded on demand via `<script>` injection (allowed
-under `file://`, unlike `fetch`). So the loop can be hours or **days** long
-without one giant file. Budget ≈ **0.25 MB and ~33 s of loop per clip** — a
-128 GB stick holds far more than you'd ever loop through. If neither `--size`
-nor `--clips` nor `--all` is given, it caps at 500 clips so you never
-accidentally emit a multi-GB folder. `--size`/`--clips` auto-extract more clips
-first if the library is smaller than the target (needs the venv + NFS);
-`--no-extract` packages only what's already there. The folder is offline and
-self-contained, and also works if served over HTTP.
-
-## 3. Refresh the headline numbers from Trino (optional)
-
-The baked figures live in `js/data.js` (pulled from `MEDALLION_PROGRESS.md`).
-`extract_assets.py --trino` already updates the live clip/score totals in the
-manifest. To also refresh the big aggregate counts, edit `js/data.js`.
-
----
+Without `assets/media/media.js` or the clip library the wall still runs: chapters fall back
+to the three baked frames and the numbers in `data.js`.
 
 ## Files
 
 | File | Role |
-|------|------|
-| `index.html` | 4-stage layout |
-| `css/style.css` | wall-scale dark theme (clamp()-based responsive type) |
-| `js/data.js` | baked real lakehouse figures (fallback + headline numbers) |
-| `js/lidar.js` | dependency-free Canvas point-cloud renderer (real or procedural) |
-| `js/app.js` | loop orchestration, counters, histogram, detection overlay, particle flow |
-| `extract_assets.py` | samples real NFS clips → frames + LiDAR clouds + manifest |
-| `requirements.txt` | core extractor deps |
-| `assets/cam1–3.jpg` | three real baked exemplar frames (always-valid fallback) |
-| `assets/clips/` | real-clip library produced by the extractor |
-
-## Tuning
-
-- Stage dwell time: `STAGE_MS` in `js/app.js` (default 8200 ms → ~33 s/loop).
-- Points per LiDAR sweep: `--cloud-points` (default 12000; lower if the GPU-less
-  wall PC struggles with the Canvas render).
-- Number of clips in rotation: `--n`.
+|---|---|
+| `index.html` | page skeleton: header, chapter rail, six chapters, footer |
+| `css/style.css` | layout and type; one unit (`--u`), so 1080p and 4K look the same |
+| `js/data.js` | every number and sentence on screen, with sources; chapter durations |
+| `js/app.js` | loop, per-loop samples, video players, wipe canvas, fallbacks |
+| `js/charts.js` | funnel, difficulty meter, scenario table, build bar, waffle, recall chart |
+| `js/lidar.js` | dependency-free Canvas point-cloud renderer |
+| `export_scores.py` | Gold difficulty snapshot from Iceberg (runs in spark-iceberg) |
+| `export_triage.py` | per-clip triage scores via `evaluation/skip.py` |
+| `extract_assets.py` | real-clip library: frames, LiDAR sweeps, detections |
+| `build_media.py` | twin / closed-loop / Cosmos videos, `media.js`, clip annotation |
+| `build_portable.py` | self-contained offline copy |
+| `assets/cam1–3.jpg`, `assets/gist_logo.png` | baked fallback frames, logo |

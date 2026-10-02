@@ -1,0 +1,8 @@
+# third-party code, envs, data and run outputs for the HUGSIM test (regenerable; see ../HUGSIM.md)
+repo/
+NAVSIM/
+data/
+runs/
+.pixi/
+.pixi-cache/
+.hf-cache/

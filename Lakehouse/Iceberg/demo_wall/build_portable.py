@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """build_portable.py — emit a self-contained, USB-transferable copy of the wall.
 
-The served demo loads the clip manifest + LiDAR clouds via fetch(), which
+The served wall loads the clip manifest + LiDAR clouds via fetch(), which
 browsers block under file://. This builder produces `demo_wall_portable/` where
-the manifest and every point cloud are INLINED as JavaScript, so the folder runs
-by simply double-clicking index.html — no web server, no Chrome flags, offline.
+the manifest and every point cloud are JavaScript files (loaded by <script>,
+which file:// allows), and copies the media library (assets/media/: videos plus
+media.js), so the folder runs by double-clicking index.html: no web server, no
+Chrome flags, offline. Run build_media.py first, or the twin / closed-loop /
+Cosmos chapters fall back to stills.
 
   python demo_wall/build_portable.py                 # package whatever is extracted
   python demo_wall/build_portable.py --size 500       # ~500 MB of real clips
   python demo_wall/build_portable.py --clips 800      # exactly ~800 clips
+  python demo_wall/build_portable.py --out /tmp/wall  # somewhere else
 
 --size / --clips drive how MANY distinct real clips the portable build holds: a
 longer non-repeating loop for a wall that runs for days/weeks. To reach the
 target the builder tops up the clip library by invoking extract_assets.py (needs
 the server-side venv + NFS); pass --no-extract to package only what already
-exists. Each clip ≈ 0.25 MB portable and ≈ 33 s of loop time.
+exists. Each clip ≈ 0.25 MB portable and one 75-second loop of the wall; the
+media library adds a fixed ~90 MB.
 """
 from __future__ import annotations
 import argparse
@@ -29,8 +34,9 @@ SRC = Path(__file__).resolve().parent          # .../demo_wall
 REPO = SRC.parent                              # .../Iceberg
 OUT = REPO / "demo_wall_portable"
 CLIPS = SRC / "assets" / "clips"
+MEDIA = SRC / "assets" / "media"
 STATIC_OVERHEAD_MB = 0.6                        # html/css/js + 3 baked frames
-LOOP_SECONDS_PER_CLIP = 32.8                    # 4 stages × STAGE_MS (8.2 s)
+LOOP_SECONDS_PER_CLIP = 75                      # one clip per loop of the six chapters (js/data.js durations)
 DEFAULT_CAP = 500                              # safe default if the library is huge
 
 
@@ -90,10 +96,15 @@ def build(clips_subset, manifest_meta):
     (OUT / "js").mkdir(parents=True)
     (OUT / "assets" / "clips").mkdir(parents=True)
 
-    for rel in ["css/style.css", "js/data.js", "js/lidar.js", "js/app.js"]:
+    for rel in ["css/style.css", "js/data.js", "js/lidar.js", "js/charts.js", "js/app.js"]:
         shutil.copy2(SRC / rel, OUT / rel)
-    for cam in sorted((SRC / "assets").glob("cam*.jpg")):
-        shutil.copy2(cam, OUT / "assets" / cam.name)
+    for img in sorted((SRC / "assets").glob("cam*.jpg")) + [SRC / "assets" / "gist_logo.png"]:
+        shutil.copy2(img, OUT / "assets" / img.name)
+    if (MEDIA / "media.js").exists():
+        shutil.copytree(MEDIA, OUT / "assets" / "media",
+                        ignore=shutil.ignore_patterns("*.tmp.mp4"))
+    else:
+        log("no assets/media/media.js — run build_media.py; twin and closed-loop chapters fall back to stills")
 
     total_cloud = 0
     packed = []
@@ -147,14 +158,15 @@ def build(clips_subset, manifest_meta):
         "  * Kiosk (auto full-screen, Chrome):\n"
         "      Windows: double-click run_windows.bat\n"
         "      Linux:   ./run_linux.sh\n\n"
-        "It loops a set of real autonomous-driving clips through the lakehouse\n"
-        "pipeline (Ingest -> Curate -> GPU Perception -> Serve). Everything is\n"
-        "baked into this folder; just copy the whole folder to the demo PC.\n\n"
+        "Six chapters loop: Collect -> Curate -> Serve -> Reconstruct -> Validate ->\n"
+        "Triage, a different real clip, digital twin and closed-loop rollout each\n"
+        "loop. Everything is in this folder; copy the whole folder to the demo PC.\n\n"
         "To exit kiosk mode: Alt+F4 (Windows) or Ctrl+W.\n")
     return len(packed), total_cloud
 
 
 def main():
+    global OUT
     ap = argparse.ArgumentParser(description="Build the self-contained portable wall display.")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--size", type=float, help="target portable size in MB (drives clip count)")
@@ -163,15 +175,17 @@ def main():
     ap.add_argument("--no-extract", action="store_true",
                     help="never run the extractor; package only already-extracted clips")
     ap.add_argument("--python", help="python used for extraction (default demo_wall/.venv/bin/python)")
-    ap.add_argument("--extract-args", default="--yolo --trino",
-                    help='args passed to extract_assets.py (default "--yolo --trino")')
+    ap.add_argument("--extract-args", default="--yolo",
+                    help='args passed to extract_assets.py (default "--yolo")')
+    ap.add_argument("--out", type=Path, default=OUT, help=f"output folder (default {OUT})")
     args = ap.parse_args()
 
+    OUT = args.out.resolve()
     manifest = read_manifest()
     if manifest is None:
         raise SystemExit(
             "no clip library yet — run extract_assets.py first, e.g.\n"
-            "  demo_wall/.venv/bin/python demo_wall/extract_assets.py --n 40 --yolo --trino")
+            "  demo_wall/.venv/bin/python demo_wall/extract_assets.py --n 40 --yolo")
 
     current = len(manifest.get("clips", []))
     pcm = per_clip_mb(manifest)

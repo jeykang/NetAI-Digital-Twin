@@ -3,149 +3,143 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EAD-Data Lakehouse — Live Data Flow</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <title>EAD Proving Ground</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <!-- ambient particle flow along the pipeline spine -->
-  <canvas id="flow-canvas"></canvas>
+  <canvas id="ambient"></canvas>
 
-  <div id="stage-wrap">
-    <!-- ───────────────────────── HEADER ───────────────────────── -->
-    <header id="topbar">
+  <div id="wall">
+    <header id="top">
       <div class="brand">
-        <span class="logo-dot"></span>
-        <span class="brand-name"><b>EAD</b>-Data Lakehouse</span>
+        <span class="brand-dot"></span>
+        <div>
+          <div class="brand-name" id="brand-name"></div>
+          <div class="brand-sub"><span id="brand-sub"></span><span class="ko" id="brand-ko"></span></div>
+        </div>
       </div>
-      <div class="brand-sub">Evolutionary Autonomous Driving&nbsp;·&nbsp;Ingest → Curate → Score → Serve</div>
-      <div class="clock" id="clock">--:--:--</div>
+      <div class="loop-line" id="loop-line"></div>
+      <div class="clock"><span id="clock">--:--:--</span><span id="date"></span></div>
     </header>
 
-    <!-- ───────────────────────── PIPELINE ──────────────────────── -->
-    <main id="pipeline">
+    <nav id="rail"><!-- six chapter nodes, built by app.js --></nav>
 
-      <!-- STAGE 1 — INGEST -->
-      <section class="stage" data-stage="0">
-        <div class="stage-head">
-          <span class="stage-idx">01</span>
-          <h2>Ingest</h2>
-          <span class="stage-time" id="time-0">⏱</span>
-          <span class="stage-tag">Dataset upload → Lakehouse</span>
+    <main id="stage">
+
+      <!-- 01 COLLECT: a real clip from the on-disk sample -->
+      <section class="chapter" data-ch="collect">
+        <div class="media">
+          <div class="frame cam">
+            <img id="collect-img" src="assets/cam1.jpg" alt="" />
+            <canvas id="collect-boxes"></canvas>
+            <div class="chips" id="collect-chips"></div>
+            <div class="pip">
+              <canvas id="collect-lidar"></canvas>
+              <span class="pip-cap">LiDAR · one 360° sweep</span>
+            </div>
+            <div class="frame-cap" id="collect-cap"></div>
+          </div>
         </div>
-        <div class="stage-body" id="body-ingest">
-          <div class="dataset-banner">
-            <div class="db-label">Incoming dataset</div>
-            <div class="db-name" id="ds-name">NVIDIA PhysicalAI</div>
-            <div class="db-sub">uploaded by <span id="ds-uploader">NVIDIA · Hugging Face</span> · <span id="ds-raw">13 TB</span> raw</div>
-          </div>
-          <div class="src-row">
-            <div class="src-chip"><span class="src-ico">🤗</span><span id="ds-source">Hugging Face</span></div>
-            <div class="src-arrow">⇒</div>
-            <div class="src-chip nfs"><span class="src-ico">🗄️</span>NFS · 10 TB subset</div>
-          </div>
-          <div class="bigstat">
-            <div class="bigstat-num" data-count="310895" data-suffix=" clips">0</div>
-            <div class="bigstat-lbl">driving clips in this dataset · <span id="ds-countries">30</span> countries</div>
-          </div>
-          <div class="dl-bar"><div class="dl-fill" id="dl-fill"></div><span class="dl-txt" id="dl-txt"></span></div>
-          <div class="sensor-grid" id="sensor-grid"><!-- filled by app.js --></div>
-        </div>
+        <div class="info"></div>
       </section>
 
-      <div class="connector"><span class="pulse"></span></div>
-
-      <!-- STAGE 2 — PROCESS -->
-      <section class="stage" data-stage="1">
-        <div class="stage-head">
-          <span class="stage-idx">02</span>
-          <h2>Curate</h2>
-          <span class="stage-time" id="time-1">⏱</span>
-          <span class="stage-tag">Trim the fat · Medallion / Iceberg</span>
-        </div>
-        <div class="stage-body" id="body-process">
-          <div class="bigstat">
-            <div class="bigstat-num" data-count="12206108151" data-suffix=" rows">0</div>
-            <div class="bigstat-lbl"><span id="pr-tables">16</span> canonical tables · <span id="pr-storage">16&nbsp;GB</span> metadata <span class="dim">(0.12% of source)</span></div>
+      <!-- 02 CURATE: the medallion funnel, and where this clip lands -->
+      <section class="chapter" data-ch="curate">
+        <div class="media curate-media">
+          <div class="panel">
+            <div class="panel-title">Medallion tiers in Apache Iceberg <span class="ko">금 · 은 · 동</span></div>
+            <div id="funnel"></div>
           </div>
-          <div class="trim-stat" id="trim-stat"><!-- filled by app.js --></div>
-          <div class="time-steps" id="time-steps"><!-- filled by app.js --></div>
-          <div class="funnel" id="funnel"><!-- filled by app.js --></div>
-          <div class="bar-rows" id="table-bars"><!-- filled by app.js --></div>
-        </div>
-      </section>
-
-      <div class="connector"><span class="pulse"></span></div>
-
-      <!-- STAGE 3 — GPU -->
-      <section class="stage" data-stage="2">
-        <div class="stage-head">
-          <span class="stage-idx">03</span>
-          <h2>GPU&nbsp;Perception</h2>
-          <span class="stage-time" id="time-2">⏱</span>
-          <span class="stage-tag">BEVFusion + YOLO · 2× GPU</span>
-        </div>
-        <div class="stage-body" id="body-gpu">
-          <div class="gpu-cols">
-            <div class="gpu-lidar">
-              <canvas id="lidar-canvas"></canvas>
-              <div class="canvas-cap">LiDAR · 360° sweep</div>
-            </div>
-            <div class="gpu-cam">
-              <div class="cam-frame">
-                <img id="gpu-cam-img" src="assets/cam1.jpg" alt="camera frame" />
-                <canvas id="bbox-canvas"></canvas>
-              </div>
-              <div class="canvas-cap">Front camera · detections</div>
-            </div>
-          </div>
-          <div class="gpu-meta">
-            <div class="gpu-gauges" id="gpu-gauges"><!-- filled by app.js --></div>
-            <div class="score-meter">
-              <div class="score-meter-lbl">Difficulty score</div>
-              <div class="score-track"><div class="score-fill" id="score-fill"></div></div>
-              <div class="score-val" id="score-val">0.00</div>
+          <div class="panel this-clip">
+            <img id="curate-thumb" src="assets/cam1.jpg" alt="" />
+            <div class="this-clip-body">
+              <div class="panel-title">This clip <span id="curate-id" class="mono"></span></div>
+              <div id="curate-axes"></div>
+              <div id="curate-meter"></div>
             </div>
           </div>
         </div>
+        <div class="info"></div>
       </section>
 
-      <div class="connector"><span class="pulse"></span></div>
-
-      <!-- STAGE 4 — SERVE -->
-      <section class="stage" data-stage="3">
-        <div class="stage-head">
-          <span class="stage-idx">04</span>
-          <h2>Serve</h2>
-          <span class="stage-time" id="time-3">⏱</span>
-          <span class="stage-tag">Dataset catalog · Dashboards · SQL</span>
-        </div>
-        <div class="stage-body" id="body-serve">
-          <div class="catalog-title">Processed datasets in the lakehouse</div>
-          <div class="dataset-catalog" id="dataset-catalog"><!-- filled by app.js --></div>
-          <div class="hist-block">
-            <div class="hist-title">Active dataset — difficulty distribution (Gold, 33,719 clips)</div>
-            <canvas id="hist-canvas"></canvas>
+      <!-- 03 SERVE: Cosmos-Transfer variants + the scenario x serving-mode space -->
+      <section class="chapter" data-ch="serve">
+        <div class="media serve-media">
+          <div class="frame duo">
+            <video id="serve-video" muted playsinline loop preload="auto"></video>
+            <span class="tag tl">Recorded</span>
+            <span class="tag tr" id="serve-cond">Cosmos-Transfer</span>
+            <div class="frame-cap" id="serve-cap"></div>
           </div>
-          <div class="serve-services" id="serve-services"><!-- filled by app.js --></div>
+          <div class="panel">
+            <div class="panel-title">Episodes per scenario class · <span class="mono">nvidia_gold.scenario</span></div>
+            <div id="scenario-grid"></div>
+          </div>
         </div>
+        <div class="info"></div>
+      </section>
+
+      <!-- 04 RECONSTRUCT: real camera vs NuRec twin vs twin depth, one video wiped -->
+      <section class="chapter" data-ch="reconstruct">
+        <div class="media">
+          <div class="frame wipe">
+            <canvas id="wipe-canvas"></canvas>
+            <span class="tag tl" id="wipe-left">Real camera</span>
+            <span class="tag tr" id="wipe-right">Twin render</span>
+            <div class="frame-cap" id="wipe-cap"></div>
+          </div>
+          <div id="build-bar"></div>
+          <video id="wipe-video" muted playsinline loop preload="auto"></video>
+        </div>
+        <div class="info"></div>
+      </section>
+
+      <!-- 05 VALIDATE: VaVAM closed-loop, our twin vs NVIDIA's scene (full width) -->
+      <section class="chapter cinema" data-ch="validate">
+        <div class="media">
+          <div class="frame pair">
+            <video id="pair-video" muted playsinline preload="auto"></video>
+            <span class="tag tl">Our twin</span>
+            <span class="tag tc">Same clip · same policy</span>
+            <span class="tag tr">NVIDIA's reconstruction</span>
+            <div class="verdict left" id="verdict-ours"></div>
+            <div class="verdict right" id="verdict-nvidia"></div>
+          </div>
+        </div>
+        <div class="info"></div>
+      </section>
+
+      <!-- 06 TRIAGE: which clips earn a rollout -->
+      <section class="chapter" data-ch="triage">
+        <div class="media triage-media">
+          <div class="panel">
+            <div class="panel-title">80 closed-loop scenes, in the order the screen would run them</div>
+            <div id="waffle"></div>
+            <div class="waffle-readout" id="waffle-readout"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">At-fault failures found vs rollout budget</div>
+            <div id="recall-chart"></div>
+          </div>
+        </div>
+        <div class="info"></div>
       </section>
 
     </main>
 
-    <!-- ───────────────────────── FOOTER ───────────────────────── -->
-    <footer id="botbar">
-      <div class="env-strip" id="env-strip"><!-- hardware/runtime context, filled by app.js --></div>
-      <div class="stack-strip" id="stack-strip"><!-- filled by app.js --></div>
-      <div class="stage-dots" id="stage-dots">
-        <span data-dot="0"></span><span data-dot="1"></span><span data-dot="2"></span><span data-dot="3"></span>
-      </div>
-      <img class="org-logo" src="assets/gist_logo.png" alt="GIST" />
+    <footer id="foot">
+      <div class="foot-stack" id="foot-stack"></div>
+      <div class="foot-snap" id="foot-snap"></div>
+      <img class="foot-logo" src="assets/gist_logo.png" alt="GIST" />
     </footer>
   </div>
 
   <script src="js/data.js"></script>
+  <!-- generated by build_media.py; the wall still runs without it -->
+  <script src="assets/media/media.js"></script>
   <script src="js/lidar.js"></script>
+  <script src="js/charts.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

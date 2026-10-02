@@ -68,6 +68,8 @@ netai-e2e-orig/
 # -----------------------------
 # extracted real-clip library (regen: extract_assets.py)
 demo_wall/assets/clips/
+# twin / closed-loop / Cosmos videos + media.js (regen: build_media.py)
+demo_wall/assets/media/
 # portable build output (regen: build_portable.py)
 demo_wall_portable/
 # zipped portable bundles for USB transfer
@@ -86,6 +88,34 @@ planning/alpamayo/*venv*/
 
 # API keys / secrets (never commit)
 .secrets/
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
+kubeconfig
+*.kubeconfig
+*.env
 
 # Local dev slice fetched from HuggingFace (fetch_slice_local.py)
 .av_root_local/
+
+# -----------------------------
+# Internal material, kept on disk but out of the public repo (untracked 2026-10-02)
+# -----------------------------
+# Claude Code project settings and local state (per-user permission lists, local paths)
+.claude/
+# session handoff: internal hosts, credential-file locations, colleagues' names
+/HANDOFF.md
+# paper-writing notes and transfer bundles (journal version still in preparation)
+/PAPER_REFERENCE_SC26.md
+/PAPER_EXPERIMENTS_RESULTS.md
+*.tar.gz
+*.tgz
+# meeting prep decks / fact sheets
+nvidia_ingestion/MEETING_*.md
+# internal reports, inter-lab correspondence, early paper drafts
+archive/reports/
+archive/paper/
+# DataX cluster access: control-plane host, another tenant's namespace and admission policies
+deploy/k8s/

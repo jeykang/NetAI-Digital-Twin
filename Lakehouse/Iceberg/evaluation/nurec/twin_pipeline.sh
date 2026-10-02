@@ -31,7 +31,11 @@ J=$NUREC/out/$short.twin.json; declare -A TM; t0=$(date +%s)
 mark(){ TM[$1]=$(( $(date +%s) - t0 )); python3 - "$J" "$C" "$1" "${TM[$1]}" "${2:-ok}" <<'PY'
 import json, sys, os
 p, clip, step, t, st = sys.argv[1:]; d = json.load(open(p)) if os.path.exists(p) else {"clip": clip, "steps": {}}
-d["steps"][step] = {"t_s": int(t), "status": st}; json.dump(d, open(p, "w"), indent=1)
+old = d["steps"].get(step)
+# a re-run skips steps that are already done; keep their original timing instead of recording ~0 s
+if not (old and old.get("status") == "ok" and st == "ok"):
+    d["steps"][step] = {"t_s": int(t), "status": st}
+json.dump(d, open(p, "w"), indent=1)
 PY
 }
 fail(){ log "FAILED at $1"; mark "$1" failed; exit 1; }

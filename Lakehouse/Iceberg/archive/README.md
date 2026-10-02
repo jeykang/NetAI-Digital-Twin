@@ -12,8 +12,8 @@ is the NVIDIA PhysicalAI dataset under `nvidia_ingestion/`, `planning/`,
 | `benchmarks/` | KAIST scalability + AD-workload benchmarks |
 | `auto_label_pipeline/` | Earlier 2D/3D auto-labeling pipeline (superseded by `bevfusion/` + the dataset's `obstacle.offline` labels) |
 | `python-scripts/` | `ingest_nuscenes_mini.py`, `spark-iceberg-nessie_test.py` (Nessie predates the Polaris catalog) |
-| `paper/` | Early paper draft |
-| `reports/` | Older write-ups (CODEBASE_REPORT, PROGRESS_REPORT_2026-04-06 + html/tex, PRESENTATION_DRAFT, SCHEMA_REVIEW_RESPONSE) — superseded by `nvidia_ingestion/PROGRESS_REPORT_2026-06.md` |
+| `paper/` | Early paper draft — local only, not in the public repo |
+| `reports/` | Older write-ups (CODEBASE_REPORT, PROGRESS_REPORT_2026-04-06 + html/tex, PRESENTATION_DRAFT, SCHEMA_REVIEW_RESPONSE) — superseded by `nvidia_ingestion/PROGRESS_REPORT_2026-06.md`; local only, not in the public repo |
 | `kaist_schema_v1` | First KAIST schema (the live version is `kaist_schema_v2.dbml` at repo root) |
 
 `docker-compose.yml` still mounts `archive/{python-scripts,nuscenes_experiment,benchmarks}`

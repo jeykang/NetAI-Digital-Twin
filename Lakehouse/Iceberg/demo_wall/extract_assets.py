@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""extract_assets.py — build a real-clip asset library for the wall display.
+"""extract_assets.py — build the real-clip library for the wall's Collect and Curate chapters.
 
 Samples N random clips from the NFS Nvidia PhysicalAI subset that have BOTH a
 front-wide camera mp4 and a LiDAR parquet, then for each clip:
@@ -7,15 +7,16 @@ front-wide camera mp4 and a LiDAR parquet, then for each clip:
   - decodes one representative LiDAR spin     -> assets/clips/<id>.bin (Float32 xyz)
   - pulls real metadata (country / hour / month / season)
   - (optional) runs YOLOv8n for real 2D detections        [--yolo]
-  - (optional) pulls the real Gold difficulty score from Trino [--trino]
-and writes assets/clips/manifest.json. The wall app (app.js) cycles through this
-playlist so every loop streams a different real clip through the pipeline.
+and writes assets/clips/manifest.json (this run's clips only). If
+user_data/wall_scores.parquet exists (export_scores.py), candidates are limited to
+clips with a Gold difficulty and the manifest is annotated with it afterwards
+(build_media.annotate_clips). The wall cycles through the library, one clip per loop.
 
 Core deps : opencv-python-headless  DracoPy  pyarrow  numpy
-Optional  : ultralytics (--yolo)   trino (--trino)
+Optional  : ultralytics (--yolo)
 
 Run inside a venv (see README). Example:
-  python extract_assets.py --n 40 --yolo
+  python demo_wall/extract_assets.py --n 40 --yolo
 """
 from __future__ import annotations
 import argparse
@@ -98,46 +99,16 @@ def load_metadata(nfs: str):
     return meta
 
 
-_FACTOR_LABELS = {
-    "time_of_day": "time of day", "season_geography": "season & geography",
-    "sensor_coverage": "sensor coverage", "ego_dynamics": "ego dynamics",
-    "obstacle_density": "obstacle density", "perception": "perception",
-}
-
-
-def _dominant_factor(detail: str):
-    """Parse the sub-score JSON in clip_scores.detail → human factor label."""
-    try:
-        d = json.loads(detail)
-        subs = d.get("sub_scores", d)
-        best, bestv = None, -1
-        for k, v in subs.items():
-            if isinstance(v, (int, float)) and v is not None and v > bestv:
-                best, bestv = k, v
-        return _FACTOR_LABELS.get(best, "edge case")
-    except Exception:
-        return "edge case"
-
-
-def load_trino_scores():
-    """Best-effort: pull real Gold difficulty score + dominant factor per clip."""
-    scores = {}
-    try:
-        import trino  # type: ignore
-    except Exception:
-        log("trino client not installed — skipping real scores (--trino)")
-        return scores
-    try:
-        conn = trino.dbapi.connect(host="localhost", port=8080, user="wall",
-                                   catalog="iceberg", schema="nvidia_gold")
-        cur = conn.cursor()
-        cur.execute("SELECT clip_id, difficulty_score, detail FROM iceberg.nvidia_gold.clip_scores")
-        for cid, sc, detail in cur.fetchall():
-            scores[cid] = {"score": float(sc), "factor": _dominant_factor(detail)}
-        log(f"pulled {len(scores):,} real difficulty scores from Trino")
-    except Exception as e:
-        log("trino score query failed:", e)
-    return scores
+def load_scored_ids(path: Path) -> set:
+    """Clip ids that carry a Gold difficulty (sensor-covered) in export_scores.py's snapshot."""
+    if not path.exists():
+        log(f"no {path} — run export_scores.py to show Gold difficulty; using all candidates")
+        return set()
+    import pyarrow.parquet as pq
+    t = pq.read_table(path, columns=["clip_id", "sensor_covered", "difficulty_camera"]).to_pydict()
+    ids = {c for c, cov, d in zip(t["clip_id"], t["sensor_covered"], t["difficulty_camera"]) if cov and d is not None}
+    log(f"{len(ids):,} clips carry a Gold difficulty")
+    return ids
 
 
 def extract_frame(mp4: str, out_jpg: str, size):
@@ -211,7 +182,8 @@ def main():
     ap.add_argument("--frame-h", type=int, default=540)
     ap.add_argument("--cloud-points", type=int, default=12000)
     ap.add_argument("--yolo", action="store_true", help="run YOLOv8n for real detections")
-    ap.add_argument("--trino", action="store_true", help="pull real Gold scores from Trino")
+    ap.add_argument("--scores", default="user_data/wall_scores.parquet",
+                    help="export_scores.py output; limits candidates to clips with a Gold difficulty")
     ap.add_argument("--seed", type=int, default=None)
     args = ap.parse_args()
 
@@ -232,19 +204,17 @@ def main():
         sys.exit(1)
 
     meta = load_metadata(nfs)
-    scores = load_trino_scores() if args.trino else {}
+    scored_ids = load_scored_ids(Path(args.scores))
 
-    # Prefer clips that ALSO have a real Gold score, so every displayed clip
-    # shows a real difficulty score + dominant factor. The on-disk LiDAR set
-    # and the scored set only partially overlap (random subset), so fall back
-    # to the full candidate pool if the intersection is too small.
-    if scores:
-        scored = [c for c in cands if c[0] in scores]
-        log(f"{len(scored):,} of those also have a real Gold score")
+    # Prefer clips with a Gold difficulty, so the Curate chapter can place every
+    # displayed clip; fall back to the full pool if too few overlap.
+    if scored_ids:
+        scored = [c for c in cands if c[0] in scored_ids]
+        log(f"{len(scored):,} of those carry a Gold difficulty")
         if len(scored) >= args.n:
             cands = scored
         else:
-            log("intersection < --n; keeping full pool (some clips will lack scores)")
+            log("intersection < --n; keeping full pool (some clips will lack a difficulty)")
     random.shuffle(cands)
     cands = cands[: args.n]
 
@@ -280,7 +250,6 @@ def main():
                       (f"{int(hour):02d}:00" if hour not in (None, "") else None)]
         where = " · ".join(b for b in where_bits if b)
         dets = run_yolo(model, rgb, size) if model is not None else None
-        sc = scores.get(cid)
 
         clips.append({
             "id": cid,
@@ -289,8 +258,6 @@ def main():
             "n_points": npts,
             "country": country, "season": season, "hour": hour,
             "where": where or "location withheld",
-            "score": round(sc["score"], 3) if sc else None,
-            "factor": sc["factor"] if sc else "edge case",
             "detections": dets,
         })
         if (i + 1) % 5 == 0 or i + 1 == len(cands):
@@ -299,12 +266,16 @@ def main():
     manifest = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": "NVIDIA PhysicalAI — Autonomous Vehicles (NFS subset)",
-        "total_clips": 310895,
-        "total_scored": 33719,
         "clips": clips,
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (out / "manifest.json").write_text(json.dumps(manifest))
     log(f"DONE: {len(clips)} clips -> {out}/manifest.json  ({time.time()-t0:.0f}s)")
+    try:                      # write each clip's Gold difficulty into the manifest
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import build_media
+        build_media.annotate_clips()
+    except Exception as e:
+        log("difficulty annotation skipped:", e)
 
 
 if __name__ == "__main__":

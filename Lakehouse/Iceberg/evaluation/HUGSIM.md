@@ -418,7 +418,9 @@ driven when the episode ended. A twin agrees when its majority verdict (fail or 
 the reference's. "Fail" is `offroad_or_collision` in AlpaSim and a collision in HUGSIM; as above,
 the same physical failure can carry different labels, so where the policy fails matters more
 than the label. The starts also differ: AlpaSim replays 1.5 s of the recorded trajectory before
-the policy takes over, HUGSIM hands the policy the recorded start speed at t = 0.
+the policy takes over, HUGSIM hands the policy the recorded start speed at t = 0. The policy also runs on
+different GPUs (the A10 under AlpaSim, the RTX 6000 as HUGSIM's client), and seeded VaVAM is not
+reproducible across GPUs (`SKIP.md`, 2026-10-06), so hardware is part of the run-to-run noise here.
 
 **The reference clip on this protocol:**
 
@@ -429,6 +431,25 @@ the policy takes over, HUGSIM hands the policy the recorded start speed at t = 0
 
 The eight other clips are queued (~3 h each on the A10, started 2026-10-06 00:37 UTC); their rows
 replace this paragraph when the queue ends.
+
+**Decision rule, fixed before the eight new clips' results exist** (written 2026-10-06 ~01:25 UTC,
+while the first of them was still training; only ac73935a's HUGSIM runs existed):
+1. *Verdict per clip and set-up:* the majority of "failed" over its rollouts (NVIDIA's scene: the
+   original, repeat and PNG runs; HUGSIM: the five seeds; our NuRec twin: its one run). A tie
+   counts as not failed.
+2. *Agreement:* a twin agrees on a clip when its verdict equals NVIDIA's. Report agreements out of
+   nine for each twin, with a Wilson 95 % interval.
+3. *Reading, set in advance:* the HUGS twin is "as faithful as the NuRec twin" if its agreements
+   are at least the NuRec twin's minus one, and "less faithful" if two or more short. One clip is
+   within noise at n = 9, and the result is descriptive, not a test.
+4. *Location:* on clips where NVIDIA's scene and a twin both fail, the twin fails "at the same
+   place" if the medians of distance driven differ by at most the larger of 10 m and the spread
+   of NVIDIA's own runs.
+5. *Plumbing check:* constant velocity should agree on all nine clips in both twins, as it does
+   for the NuRec twin (9/9). Any disagreement there is a conversion or scenario error to fix
+   before the VaVAM comparison is read.
+6. *Reported regardless of outcome:* all nine rows, including clips where a twin fails to build;
+   a clip that cannot be built counts as not agreeing.
 
 ```bash
 cd evaluation/hugsim && nohup setsid pai/twin_queue.sh <clip-uuid> [...] > runs/twin_queue/queue.log 2>&1 &

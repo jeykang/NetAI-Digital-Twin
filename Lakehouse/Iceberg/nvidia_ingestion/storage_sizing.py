@@ -74,7 +74,7 @@ def twin_hours() -> dict:
             "hugs_h": statistics.median(hugs) if hugs else 2.7, "hugs_n": len(hugs)}
 
 
-def fmt_tb(gb): return f"{gb/1024:.2f} TB" if gb >= 1024 else f"{gb:.0f} GB"
+def fmt_tb(gb): return f"{gb/1000:.2f} TB" if gb >= 1000 else f"{gb:.0f} GB"   # decimal units (1 TB = 1,000 GB) throughout
 
 
 def model(a):
@@ -90,7 +90,7 @@ def model(a):
     P("| quantity | value | basis |\n|---|---|---|")
     P(f"| full-sensor clip | {m['raw_full_sensor_clip_mb']} MB | measured, one clip on NFS |")
     P(f"| on-disk mean clip | {m['raw_on_disk_mean_mb']} MB | 13.5 TB / 32,986 clips |")
-    P(f"| NVIDIA corpus, full-sensor | {fmt_tb(m['corpus_clips']*m['raw_full_sensor_clip_mb']/1024)} | 306,152 clips x 600 MB |")
+    P(f"| NVIDIA corpus, full-sensor | {fmt_tb(m['corpus_clips']*m['raw_full_sensor_clip_mb'] / 1000)} | 306,152 clips x 600 MB |")
     P(f"| project fleet, raw per year | {fleet_tb_yr:.0f} TB | {a.cars} cars x {a.hours_per_car_day} h/day x {a.clips_per_hour} clips/h x 600 MB (assumption) |")
     P(f"| retained after redundancy cull | {fleet_tb_yr*a.retain:.0f} TB/yr | retain {a.retain:.0%} (the professor's 100-to-10 rule; our on-disk to Gold is {m['gold_clips']/m['on_disk_clips']:.1%}) |")
     P("")
@@ -102,8 +102,8 @@ def model(a):
     P("| Gold clips N | twin (NuRec) | + variants stored, v cond x 6 cam | + rollout outputs, p policies | total (store) | total (regenerate) |\n|---|---|---|---|---|---|")
     for N in a.gold_sizes:
         twin = N * m["nurec_scene_gb_catalog"]
-        var = N * a.variants * m["variant_full_clip_6cam_mb"] / 1024
-        roll = N * a.policies * (1 + a.variants) * m["rollout_output_mb"] / 1024
+        var = N * a.variants * m["variant_full_clip_6cam_mb"] / 1000
+        roll = N * a.policies * (1 + a.variants) * m["rollout_output_mb"] / 1000
         P(f"| {N:,} | {fmt_tb(twin)} | {fmt_tb(var)} | {fmt_tb(roll)} | {fmt_tb(twin+var+roll)} | {fmt_tb(twin+roll)} |")
     P("")
     P(f"Assumptions: v = {a.variants} augmentation conditions per Gold clip, p = {a.policies} policies "
@@ -119,7 +119,7 @@ def model(a):
       f"**{gpu_h_per_clip:.1f} A100-GPU-hours** (E-B: {m['cosmos_window_gpu_min']} GPU-min per 4 s single-camera "
       f"window, x5 duration x6 cameras, / {m['cosmos_keep_rate']:.0%} gate keep-rate). Storing it costs "
       f"{m['variant_full_clip_6cam_mb']} MB.\n")
-    store_usd_yr = m["variant_full_clip_6cam_mb"] / 1024 / 1024 * a.tb_month_usd * 12
+    store_usd_yr = m["variant_full_clip_6cam_mb"] / 1e6 * a.tb_month_usd * 12
     regen_usd = gpu_h_per_clip * a.gpu_hour_usd
     breakeven_yr = store_usd_yr / regen_usd if regen_usd else float("inf")
     P("| | per clip-condition | basis |\n|---|---|---|")
@@ -143,7 +143,7 @@ def model(a):
       f"a {a.gold_sizes[-1]:,}-clip Gold with {a.variants} conditions needs roughly "
       f"{a.gold_sizes[-1]*0.3*a.variants*gpu_h_per_clip*2:,.0f} A100-GPU-hours a year of Cosmos-Transfer1 "
       f"generation, which is the number to negotiate for, against a serving disk of "
-      f"{fmt_tb(a.gold_sizes[-1]*(m['nurec_scene_gb_catalog'] + a.variants*m['variant_full_clip_6cam_mb']/1024))}.\n")
+      f"{fmt_tb(a.gold_sizes[-1]*(m['nurec_scene_gb_catalog'] + a.variants*m['variant_full_clip_6cam_mb'] / 1000))}.\n")
 
     # ---------------------------------------------------------------- twin reconstruction
     P("## The twin itself\n")

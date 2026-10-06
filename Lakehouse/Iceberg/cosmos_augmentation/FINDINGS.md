@@ -106,8 +106,8 @@ Rather than camera replacing fused, clip_scores now emits BOTH:
 - difficulty_camera (this consumer's camera-only endgame) — materializes Gold views (default)
 - difficulty_lidar (general-purpose lidar-fused stack) — derivable from clip_scores
 Each = behavioral noisy-OR its modality's rank-normed perceptual axis; behavioral shared.
-Full re-score (top 10% of 31,737): camera Gold 3,174 / lidar Gold 3,176; overlap 2,830,
-~374 unique to EACH tier (Jaccard 0.79) — both add real value. `--gold-axis camera|lidar`
+Full re-score (top 10% of 31,737): camera Gold 3,174 / lidar Gold 3,176; overlap 2,805,
+369 unique to EACH tier (Jaccard 0.79; corrected 2026-10-06 from "2,830 / ~374", recomputed 2026-08-11) — both add real value. `--gold-axis camera|lidar`
 picks which materializes views. (Spark driver OOM on the dual write -> use --driver-memory 12g.)
 
 ## C batch (2026-06-29) — validated at small scale + caught a label-validity bug

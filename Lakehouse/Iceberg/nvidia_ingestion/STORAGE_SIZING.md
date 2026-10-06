@@ -10,7 +10,7 @@ Raw logs as recorded. This tier is sized by the fleet, not by curation; the lake
 |---|---|---|
 | full-sensor clip | 600 MB | measured, one clip on NFS |
 | on-disk mean clip | 409 MB | 13.5 TB / 32,986 clips |
-| NVIDIA corpus, full-sensor | 175.18 TB | 306,152 clips x 600 MB |
+| NVIDIA corpus, full-sensor | 183.69 TB | 306,152 clips x 600 MB |
 | project fleet, raw per year | 6623 TB | 21 cars x 8 h/day x 180 clips/h x 600 MB (assumption) |
 | retained after redundancy cull | 662 TB/yr | retain 10% (the professor's 100-to-10 rule; our on-disk to Gold is 9.6%) |
 
@@ -20,10 +20,10 @@ Derived artifacts per Gold clip, for a Gold tier of N clips. Bronze/Silver/Gold 
 
 | Gold clips N | twin (NuRec) | + variants stored, v cond x 6 cam | + rollout outputs, p policies | total (store) | total (regenerate) |
 |---|---|---|---|---|---|
-| 500 | 895 GB | 344 GB | 94 GB | 1.30 TB | 989 GB |
-| 1,000 | 1.75 TB | 688 GB | 188 GB | 2.60 TB | 1.93 TB |
-| 3,176 | 5.55 TB | 2.14 TB | 596 GB | 8.27 TB | 6.13 TB |
-| 10,000 | 17.48 TB | 6.72 TB | 1.83 TB | 26.03 TB | 19.31 TB |
+| 500 | 895 GB | 352 GB | 96 GB | 1.34 TB | 991 GB |
+| 1,000 | 1.79 TB | 705 GB | 192 GB | 2.69 TB | 1.98 TB |
+| 3,176 | 5.69 TB | 2.24 TB | 610 GB | 8.53 TB | 6.29 TB |
+| 10,000 | 17.90 TB | 7.05 TB | 1.92 TB | 26.87 TB | 19.82 TB |
 
 Assumptions: v = 3 augmentation conditions per Gold clip, p = 3 policies evaluated per re-curation, twin = 1.79 GB/scene (catalog mean; local mean 1.6 GB), variant = 235 MB per condition for all six cameras over the whole clip (the camera set size; the E-B batch rendered 4 s single-camera windows of about 8 MB).
 
@@ -33,11 +33,11 @@ Regenerating one condition for one Gold clip (20 s, 6 cameras) costs about **19.
 
 | | per clip-condition | basis |
 |---|---|---|
-| store, per year | $0.0538 | 235 MB x $20.0/TB-month (assumption) |
+| store, per year | $0.0564 | 235 MB x $20.0/TB-month (assumption) |
 | regenerate, once | $39.07 | 19.5 GPU-h x $2.0/GPU-h (assumption) |
-| break-even storage horizon | 726 years | storing beats regenerating unless a variant is kept that long unused |
+| break-even storage horizon | 693 years | storing beats regenerating unless a variant is kept that long unused |
 
-At these prices a stored variant pays for its regeneration after 726 years, so **store every variant that was rendered**; the tension the professor describes is not about the variants that exist but about the ones that do not: the space of harder situations (a pedestrian stepping out, a different weather) is open-ended, so it cannot be pre-rendered, and what must be sized is the GPU budget per re-curation, not the disk.
+At these prices a stored variant pays for its regeneration after 693 years, so **store every variant that was rendered**; the tension the professor describes is not about the variants that exist but about the ones that do not: the space of harder situations (a pedestrian stepping out, a different weather) is open-ended, so it cannot be pre-rendered, and what must be sized is the GPU budget per re-curation, not the disk.
 
 | re-curation interval | new Gold fraction per cycle (turnover) | GPU-h per cycle for v conditions, N Gold | GPU-h per year |
 |---|---|---|---|
@@ -50,7 +50,7 @@ At these prices a stored variant pays for its regeneration after 726 years, so *
 | 12 mo | 30% | N=500: 8,791 | 8,791 |
 | 12 mo | 30% | N=10,000: 175,814 | 175,814 |
 
-Reading: with Gold shifting every 6 months and 30% of it new each time (his 6-month drift), a 10,000-clip Gold with 3 conditions needs roughly 351,628 A100-GPU-hours a year of Cosmos-Transfer1 generation, which is the number to negotiate for, against a serving disk of 24.20 TB.
+Reading: with Gold shifting every 6 months and 30% of it new each time (his 6-month drift), a 10,000-clip Gold with 3 conditions needs roughly 351,628 A100-GPU-hours a year of Cosmos-Transfer1 generation, which is the number to negotiate for, against a serving disk of 24.95 TB.
 
 ## The twin itself
 
@@ -65,11 +65,11 @@ Two twin kinds now exist (`evaluation/EPISODES.md`, serving modes `closedloop-nu
 | Gold clips N | NuRec: storage | NuRec: A10-years | HUGS: storage | HUGS, fresh clips: A10-years |
 |---|---|---|---|---|
 | 500 | 895 GB | 0.33 | 500 GB | 0.32 |
-| 1,000 | 1.75 TB | 0.67 | 1000 GB | 0.64 |
-| 3,176 | 5.55 TB | 2.12 | 3.10 TB | 2.03 |
-| 10,000 | 17.48 TB | 6.67 | 9.77 TB | 6.39 |
+| 1,000 | 1.79 TB | 0.67 | 1.00 TB | 0.64 |
+| 3,176 | 5.69 TB | 2.12 | 3.18 TB | 2.03 |
+| 10,000 | 17.90 TB | 6.67 | 10.00 TB | 6.39 |
 
-The twin, not the variants, dominates both serving storage and GPU time, and it is what re-curation churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until evicted. At 3,176 Gold clips a NuRec twin of everything is 5.55 TB and 2.1 A10-years. The HUGS twin needs about half the storage, at ~3 dB lower fidelity; its GPU time is half only where the clip's semantic labels already exist, and about the same as NuRec's (5.6 h) where the NRE aux tool has to make them, so a cheaper semantic source is what would make it the cheap twin. With 6-month re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs 11,145 A10-hours a year. Which clips earn a twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.
+The twin, not the variants, dominates both serving storage and GPU time, and it is what re-curation churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until evicted. At 3,176 Gold clips a NuRec twin of everything is 5.69 TB and 2.1 A10-years. The HUGS twin needs about half the storage, at ~3 dB lower fidelity; its GPU time is half only where the clip's semantic labels already exist, and about the same as NuRec's (5.6 h) where the NRE aux tool has to make them, so a cheaper semantic source is what would make it the cheap twin. With 6-month re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs 11,145 A10-hours a year. Which clips earn a twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.
 
 ## Validation cost per re-curation
 

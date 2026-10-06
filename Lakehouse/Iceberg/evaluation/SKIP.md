@@ -38,9 +38,11 @@ recall 0.60 at a 50% budget; all-features 0.660; MF-PDMS alone 0.538.
 
 ## Reading it
 
-1. **The cheap reference ladder is the screen, not the difficulty score.** Running six
-   trivial policies open-loop on a clip (about 3 s) says more about whether a real
-   policy will fail closed-loop on it than any curation axis does. The axes alone are
+1. **The open-loop ladder is the screen, not the difficulty score.** The policy's own
+   open-loop pass, read against five track-only reference policies, says more about
+   whether it will fail closed-loop on a clip than any curation axis does. (Corrected
+   2026-10-06: the signal is in the policy's own pass, 11.6 s per clip for VaVAM on a GPU;
+   the track-only policies alone are at chance, next section.) The axes alone are
    at chance for this target, and the single strongest curation signal, conflict load,
    is *anti*-correlated (0.37): the densest scenes are where VaVAM is struck from
    behind or truncated early rather than at fault.
@@ -100,8 +102,33 @@ the frozen screen records, is untouched):
 | per-decision only (track-only policies) | 60 | 0.453 | [0.32, 0.58] |
 
 No gain: with 80 labels the extra columns add variance, not signal, consistent with the
-track-only rungs being uninformative on their own. VaVAM's own per-decision scores
-(`.decisions_nurec_vavam.parquet`, a GPU pass) were still being computed when this was written.
+track-only rungs being uninformative on their own.
+
+VaVAM's own per-decision scores (`.decisions_nurec_vavam.parquet`, a rerun on the RTX 6000; the
+`openloop+` rows combine the original A10 run's per-clip means with the rerun's decisions):
+
+| feature set | n features | LOO AUC | 95% CI |
+|---|---|---|---|
+| per-clip means (the screen) | 43 | 0.657 | [0.53, 0.78] |
+| + worst decision, all six policies | 79 | 0.680 | [0.56, 0.80] |
+| + earliest decision, all six | 79 | 0.624 | [0.49, 0.76] |
+| + both | 115 | 0.647 | [0.52, 0.77] |
+| track-only ladder + VaVAM's worst decision | 42 | 0.670 | [0.55, 0.79] |
+| track-only ladder + VaVAM's earliest decision | 42 | 0.595 | [0.46, 0.73] |
+| VaVAM's worst decision only | 6 | 0.628 | [0.50, 0.75] |
+| VaVAM's earliest decision only (a third of the cost) | 6 | 0.547 | [0.42, 0.67] |
+
+The worst of VaVAM's three decisions carries its signal about as well as the mean does; every
+difference above sits inside the intervals, and the best of eight variants tried on the same 80
+labels is biased upward, so none replaces the frozen screen. Scoring only the earliest decision,
+which would cut the open-loop pass to a third, loses most of the signal; which decision is the
+informative one varies by clip. Batched inference is the cost lever left (roadmap P2.1).
+
+**VaVAM's open-loop scores do not reproduce across GPUs.** The rerun on the RTX 6000, with the
+same seed as the original A10 run, moved MF-PDMS by more than 0.01 on 37 of 137 clips (by up to
+0.27; a decision's collision verdict flips on some). The screen survives it: on the rerun's
+features its LOO AUC is 0.664 [0.54, 0.78], and refitted on them it ranks the 63 frozen clips with
+Spearman 0.976 against the frozen ranking, keeping 31 of the dial's 32.
 
 ## Prospective test, prepared (2026-10-06)
 

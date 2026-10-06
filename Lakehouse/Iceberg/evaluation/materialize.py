@@ -15,10 +15,21 @@ in its own shape, so the serving step is: take a selection, emit it in a *mode*:
              staged in the pai-clip-dl layout (ncore/stage_pai_clip.py, which also
              fetches the four .offline features from HuggingFace) and converted with
              NVIDIA's own PAI converter vendored at ncore/repo (see ncore/README.md).
+  hugsim     our HUGS twins of the selection for HUGSIM (no HD map, no catalog scene
+             needed): a clip with a twin is served as its recorded-traffic scenario
+             (hugsim/configs/pai/<short>_lidar-rec-02.yaml); a clip without one is listed
+             with what it still needs, and --build makes the twins it can
+             (hugsim/pai/twin_hugsim.sh, ~2.7 h per clip on the A10 given the clip's
+             staged inputs and aux semantics). The fallback for clips NVIDIA has no
+             NuRec scene for.
 
 Selection: --clips-file, or --clips-from-parquet with --rank-col/--top-frac like
-run_eval.py. Every mode writes a manifest.json beside its output naming what was
-served, what was skipped and why, so the serving step is auditable.
+run_eval.py. Rollout triage (the dial): --triage <parquet with clip_id, p_fail> (e.g.
+`skip.py predict` output) with --budget <fraction or count> keeps only the clips the
+screen ranks most likely to fail; clips the screen has no score for are always kept
+(nothing is skipped that the screen cannot judge). Every mode writes a manifest.json
+beside its output naming what was served, what was skipped and why, so the serving step
+is auditable.
 """
 from __future__ import annotations
 
@@ -26,6 +37,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +52,7 @@ HF_REPO = "nvidia/PhysicalAI-Autonomous-Vehicles-NuRec"
 NCORE_DIR = os.path.join(HERE, "ncore")
 NCORE_REPO = os.path.join(NCORE_DIR, "repo")
 NCORE_PY = os.path.join(NCORE_DIR, ".venv", "bin", "python")
+HUGSIM = os.path.join(HERE, "hugsim")
 
 
 # ----------------------------------------------------------------------------- selection
@@ -57,6 +70,21 @@ def select_clips(a) -> list[str]:
     if a.limit:
         ids = ids[: a.limit]
     return ids
+
+
+def triage(clips: list[str], path: str, budget: float) -> tuple[list[str], dict]:
+    """The dial: keep the top `budget` (fraction <= 1, or a count) of clips by p_fail."""
+    t = pq.read_table(path, columns=["clip_id", "p_fail"]).to_pydict()
+    p = dict(zip(t["clip_id"], t["p_fail"]))
+    scored = sorted([c for c in clips if p.get(c) is not None], key=lambda c: -p[c])
+    unscored = [c for c in clips if p.get(c) is None]
+    k = int(round(budget * len(scored))) if budget <= 1 else min(len(scored), int(budget))
+    keep = scored[:k] + unscored
+    record = {"triage_file": os.path.abspath(path), "budget": budget, "scored": len(scored),
+              "kept_by_screen": scored[:k], "skipped_by_screen": scored[k:], "kept_unscored": unscored}
+    print(f"[triage] budget {budget}: {k} of {len(scored)} scored clips kept, {len(scored) - k} skipped; "
+          f"{len(unscored)} unscored clips kept")
+    return keep, record
 
 
 # ----------------------------------------------------------------------------- nurec
@@ -97,6 +125,7 @@ def mode_nurec(clips, out_dir, download: bool):
         to_download = []
     manifest = {
         "mode": "nurec", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "out_dir": os.path.abspath(out_dir),
+        "no_artifact_fallback": "materialize.py hugsim (our HUGS twin: no HD map or catalog scene needed)",
         "run": f"LOCAL_USDZ_DIR={os.path.abspath(out_dir)} alpasim/run_scene.sh <policy-spec>",
         "served": served,
         "not_cached_pass_--download": [c for c, _ in to_download],
@@ -152,9 +181,56 @@ def mode_ncore(clips, out_dir, root):
     return manifest
 
 
+# ----------------------------------------------------------------------------- hugsim
+def mode_hugsim(clips, out_dir, build: bool):
+    def state(c):
+        short = c[:8]
+        scene = os.path.join(HUGSIM, "data", "scenes", "pai", f"{short}_lidar")
+        scen = os.path.join(HUGSIM, "configs", "pai", f"{short}_lidar-rec-02.yaml")
+        staged = os.path.isdir(os.path.join(NCORE_DIR, "staged", c))
+        aux = os.path.exists(os.path.join(NCORE_DIR, "out", f"pai_{c}", f"pai_{c}.aux.sseg.zarr.itar"))
+        return short, scene, scen, staged, aux
+
+    if build:
+        for c in clips:
+            short, scene, scen, staged, aux = state(c)
+            if not os.path.exists(os.path.join(scene, "scene.pth")) and staged and aux:
+                print(f"[hugsim] building the twin of {short} (hugsim/pai/twin_hugsim.sh)", flush=True)
+                subprocess.run([os.path.join(HUGSIM, "pai", "twin_hugsim.sh"), c])
+    os.makedirs(os.path.join(out_dir, "scenarios"), exist_ok=True)
+    served, buildable, needs_inputs = [], [], []
+    for c in clips:
+        short, scene, scen, staged, aux = state(c)
+        if os.path.exists(os.path.join(scene, "scene.pth")) and os.path.exists(scen):
+            dst = os.path.join(out_dir, "scenarios", os.path.basename(scen))
+            if not os.path.exists(dst):
+                try:
+                    os.link(scen, dst)
+                except OSError:                     # another filesystem
+                    shutil.copy2(scen, dst)
+            served.append({"clip_id": c, "scene": scene, "scenario": dst})
+        elif staged and aux:
+            buildable.append(c)
+        else:
+            needs_inputs.append({"clip_id": c, "staged": staged, "aux_semantics": aux})
+    manifest = {
+        "mode": "hugsim", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "out_dir": os.path.abspath(out_dir),
+        "run": {"vavam": f"CAMERA={HUGSIM}/configs/pai_camera_front100.yaml TAG=front100 {HUGSIM}/run_vavam.sh <scenario> <seed>",
+                "constant_velocity": f"{HUGSIM}/run_closed_loop.sh <scenario> ltf {HUGSIM}/configs/pai_base_local_cv.yaml",
+                "any HUGSIM client": f"{HUGSIM}/run_closed_loop.sh <scenario> <ad> {HUGSIM}/configs/pai_base_local.yaml"},
+        "served": served,
+        "build_with_--build_(twin_hugsim.sh)": buildable,
+        "needs_staging_and_aux_semantics_first": needs_inputs,
+    }
+    json.dump(manifest, open(os.path.join(out_dir, "manifest.json"), "w"), indent=1)
+    print(f"[hugsim] served {len(served)} twins -> {out_dir}/scenarios; {len(buildable)} buildable "
+          f"(--build); {len(needs_inputs)} need staging + aux semantics first (ncore mode, then the NRE aux tool)")
+    return manifest
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["openloop", "nurec", "ncore"])
+    ap.add_argument("mode", choices=["openloop", "nurec", "ncore", "hugsim"])
     ap.add_argument("--clips-file")
     ap.add_argument("--clips-from-parquet", help="any parquet with a clip_id column, e.g. a score shard")
     ap.add_argument("--rank-col")
@@ -162,15 +238,27 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--out", required=True, help="output directory for the mode")
     ap.add_argument("--download", action="store_true", help="nurec: fetch uncached artifacts from HF")
+    ap.add_argument("--build", action="store_true", help="hugsim: build the missing twins it can (hours each, A10)")
+    ap.add_argument("--triage", help="rollout triage scores: parquet with clip_id, p_fail (skip.py predict)")
+    ap.add_argument("--budget", type=float, help="with --triage: fraction (<=1) or count of scored clips to keep")
     ap.add_argument("--root", default=os.environ.get("AV_ROOT", "/mnt/netai-e2e/nvidia-physicalai-av-subset"))
     a = ap.parse_args()
     if not (a.clips_file or a.clips_from_parquet):
         sys.exit("give --clips-file or --clips-from-parquet")
     clips = select_clips(a)
     print(f"[materialize] {len(clips)} clips selected, mode={a.mode}")
-    {"openloop": lambda: mode_openloop(clips, a.out),
+    tri = None
+    if a.triage:
+        if a.budget is None:
+            sys.exit("--triage needs --budget")
+        clips, tri = triage(clips, a.triage, a.budget)
+    m = {"openloop": lambda: mode_openloop(clips, a.out),
      "nurec": lambda: mode_nurec(clips, a.out, a.download),
-     "ncore": lambda: mode_ncore(clips, a.out, a.root)}[a.mode]()
+     "ncore": lambda: mode_ncore(clips, a.out, a.root),
+     "hugsim": lambda: mode_hugsim(clips, a.out, a.build)}[a.mode]()
+    if tri:
+        m["triage"] = tri
+        json.dump(m, open(os.path.join(a.out, "manifest.json"), "w"), indent=1)
 
 
 if __name__ == "__main__":

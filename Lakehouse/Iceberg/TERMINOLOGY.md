@@ -18,7 +18,7 @@ in a paper, expand it once in a terminology box, not a footnote.
 | concept | use | do not use | precedent |
 |---|---|---|---|
 | the whole validation system built on the lakehouse | **proving ground** (in Korean, 검증장); "a data-driven / virtual proving ground" | harness, testbed (acceptable in systems venues, second choice), rig | "virtual proving ground" is an established automotive term; 검증장 is the professor's own word |
-| the component that runs a policy over episodes and scores it (`evaluation/harness.py`) | **evaluator** — open-loop evaluator, closed-loop evaluator | harness | says what it does |
+| the component that runs a policy over episodes and scores it (`evaluation/evaluator.py`, formerly `harness.py`) | **evaluator** — open-loop evaluator, closed-loop evaluator | harness | says what it does |
 | the metric code (`evaluation/metrics.py`) | **scorer** | — | NAVSIM's PDM scorer |
 | our AlpaSim plugin (`driver=harness`, package `alpasim_harness`) | **policy bridge** | harness plugin, harness driver | it bridges our policy contract into AlpaSim |
 | the thing being evaluated | **driving policy**; on first use "the driving policy — the system under test (SUT)" | agent, model (alone), planner (alone) | SUT is the standards' term; the code already says `Policy` |
@@ -48,13 +48,13 @@ and ego-vs-others ambiguity), **rig** (NVIDIA's sensor rig, `T_sensor_rig`),
 
 ## Identifiers still carrying old names (rename when the module is next touched)
 
+Renamed on 2026-10-06: `harness.py` → `evaluator.py` (`harness.py` stays as a re-export shim), the `validator_mode` column → `serving_mode`, `n_agents` → `n_actors` (`episodes.py`, `nvidia_gold.episode`).
+
 | identifier | where | target name |
 |---|---|---|
-| `harness.py`, `from harness import …` | `evaluation/` | `evaluator.py` with a one-line import shim |
 | `alpasim_harness` package, `driver=harness`, `HARNESS_POLICY`, `HARNESS_DIR`, image `alpasim-harness-base` | `evaluation/alpasim/plugin`, `run_scene.sh` | `alpasim_bridge`, `driver=bridge` — only together with the next image rebuild |
-| `Scenario.agents`, `agent_history`, `agent_span_us`, `AgentBox`, `n_tracks` | `evaluation/scenario.py`, `adapters.py`, `harness.py` | `actors`, `actor_history`, `actor_span_us`, `ActorBox` |
-| `n_agents`, `window_agents` | `evaluation/episodes.py`, `cosmos_augmentation/batch_manifest.json` | `n_actors`, `window_actors` |
-| `validator_mode` column | `nvidia_gold.episode`, `episodes.py`, `build_episode_tables.py` | `serving_mode` — at the next table rebuild (needs a migration otherwise) |
+| `Scenario.agents`, `agent_history`, `agent_span_us`, `AgentBox`, `n_tracks` | `evaluation/scenario.py`, `adapters.py`, `evaluator.py` | `actors`, `actor_history`, `actor_span_us`, `ActorBox` |
+| `window_agents` | `cosmos_augmentation/batch_manifest.json` | `window_actors` |
 | `.conflict/`, `conflict_score`, `conflict_runner.py` | `planning/`, NFS shards | keep `conflict`; the prose name is "traffic conflict" |
 | `camera_gated.parquet`, "agent-gated" in docstrings | `planning/write_camera_gated.py` | docstring: "actor-gated" |
 | `skip.py` | `evaluation/` | keep the file name; the tool is "rollout triage" |

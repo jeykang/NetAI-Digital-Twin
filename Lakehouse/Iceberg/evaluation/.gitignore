@@ -20,6 +20,8 @@ __pycache__/
 .results_*.json
 .results_nurec_*
 .results_*.parquet
+.decisions_*.parquet
+.compare_simulators.csv
 .run_*.log
 .skip_*
 .skip_features.parquet

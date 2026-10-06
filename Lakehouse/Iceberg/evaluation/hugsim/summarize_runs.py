@@ -1,6 +1,7 @@
 """summarize_runs.py — one row per HUGSIM closed-loop episode.
 
   docker run --rm -v $H:$H -w $H/repo hugsim-dev:cu118 pixi run python $H/summarize_runs.py runs/pai_vavam_s*_ltf/*
+  ... summarize_runs.py --json out.json 'runs/pai*_ltf/*'   # also write the rows as JSON (evaluation/rollouts.py)
 
 For each episode dir (closed_loop.py output): steps, simulated seconds, distance driven, the
 largest gap to the recorded front-camera path (HUGSIM ends an episode at > 10 m), how it ended,
@@ -15,7 +16,14 @@ import sys
 import numpy as np
 
 H = os.path.dirname(os.path.abspath(__file__))
-dirs = [d for a in sys.argv[1:] for d in sorted(glob.glob(a if os.path.isabs(a) else os.path.join(H, a)))]
+args = sys.argv[1:]
+json_out = None
+if "--json" in args:
+    i = args.index("--json")
+    json_out = args[i + 1]
+    del args[i:i + 2]
+dirs = [d for a in args for d in sorted(glob.glob(a if os.path.isabs(a) else os.path.join(H, a)))]
+rows = []
 print(f"{'episode':52s} {'steps':>5s} {'sim s':>5s} {'dist m':>6s} {'max gap':>7s} {'end':10s}"
       f" {'NC':>5s} {'DAC':>5s} {'TTC':>5s} {'C':>4s} {'Rc':>5s} {'HD':>6s}")
 for d in dirs:
@@ -53,3 +61,9 @@ for d in dirs:
         end = "step cap"
     print(f"{os.path.relpath(d, H):52s} {len(frames):5d} {last['time_stamp']:5.2f} {dist:6.1f} {gap:7.1f} {end:10s}"
           f" {ev['nc']:5.2f} {ev['dac']:5.2f} {ev['ttc']:5.2f} {ev['c']:4.1f} {ev['rc']:5.2f} {ev['hdscore']:6.3f}")
+    rows.append({"episode_dir": os.path.relpath(d, H), "steps": len(frames), "sim_s": float(last["time_stamp"]),
+                 "dist_m": dist, "max_gap_m": gap, "end": end,
+                 **{k: float(ev[k]) for k in ("nc", "dac", "ttc", "c", "rc", "hdscore") if k in ev}})
+if json_out:
+    json.dump(rows, open(json_out, "w"), indent=1)
+    print(f"wrote {len(rows)} rows to {json_out}")

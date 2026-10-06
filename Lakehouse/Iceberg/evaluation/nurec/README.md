@@ -195,14 +195,16 @@ Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's
 | clip | tod / speed / NVIDIA q | PSNR | cv ours: dist, outcome, t_end | cv nvidia | VaVAM ours: dist, outcome, t_end | VaVAM nvidia | timings (convert / aux / train / total) |
 |---|---|---|---|---|---|---|---|
 | ac73935a | day / — / — (reference clip) | 29.53 | 0.06 m, rear-ended, 8 s | 0.09 m, rear-ended, 8 s | 60.1 m, off-road, 8.5 s | 38.4 m, off-road, 6 s | 2.5 min / ~3 h (shared GPU) / 2 h 05 / — |
-| bb4394e7 | day / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | 13.3 m, clean, 4.0 s | 11.0 m, collision (rear), 4.0 s | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
+| bb4394e7 | dawn / slow / 84.3 | 32.57 | 0.89 m, rear-ended, 8 s | 0.00 m, rear-ended, 7.5 s | 13.3 m, clean, 4.0 s | 11.0 m, collision (rear), 4.0 s | 2 min / 2 h 48 / 2 h 19 / 5 h 28 |
 | a07e81de | day / medium / 80.0 | 28.38 | 27.4 m, clean, 16.5 s | 27.4 m, clean, 16.5 s | 68.6 m, off-road, 6.5 s | 68.5 m, off-road, 6.5 s | 2 min / 2 h 51 / 3 h 00 / 6 h 20 |
 | 0ec48454 | day / medium / 77.0 | 29.79 | 38.4 m, off-road, 1.0 s | 38.3 m, off-road, 1.0 s | 99.2 m, clean, 7.5 s | 119.0 m, clean, 9.0 s | 2 min / 2 h 46 / 3 h 08 / 6 h 24 |
-| a2bd8a78 | night / medium / 78.0 | 28.82 | 27.6 m, collision (lateral), 16.5 s | 27.7 m, collision (lateral), 16.5 s | 45.8 m, collision (lateral), 3.5 s | 43.5 m, collision (lateral), 3.5 s | 2 min / 2 h 46 / 2 h 47 / 6 h 03 |
-| abd45a30 | night / medium / 77.8 | 27.51 | 42.4 m, off-road, 0.5 s | 42.4 m, off-road, 0.5 s | 70.1 m, collision (lateral), 3.5 s | 71.0 m, collision (rear), 3.5 s | 2 min / 2 h 52 / 2 h 45 / 6 h 08 |
-| 44c3b4d5 | night / slow / 77.2 | 31.74 | 12.9 m, clean, 16.5 s | 13.0 m, clean, 16.5 s | 27.9 m, off-road, 7.5 s | 39.4 m, off-road, 10.0 s | 2 min / 2 h 52 / 2 h 43 / 6 h 05 |
+| a2bd8a78 | day / medium / 78.0 | 28.82 | 27.6 m, collision (lateral), 16.5 s | 27.7 m, collision (lateral), 16.5 s | 45.8 m, collision (lateral), 3.5 s | 43.5 m, collision (lateral), 3.5 s | 2 min / 2 h 46 / 2 h 47 / 6 h 03 |
+| abd45a30 | day / medium / 77.8 | 27.51 | 42.4 m, off-road, 0.5 s | 42.4 m, off-road, 0.5 s | 70.1 m, collision (lateral), 3.5 s | 71.0 m, collision (rear), 3.5 s | 2 min / 2 h 52 / 2 h 45 / 6 h 08 |
+| 44c3b4d5 | day, overcast / slow / 77.2 | 31.74 | 12.9 m, clean, 16.5 s | 13.0 m, clean, 16.5 s | 27.9 m, off-road, 7.5 s | 39.4 m, off-road, 10.0 s | 2 min / 2 h 52 / 2 h 43 / 6 h 05 |
 | e848c843 | night / slow / 74.3 (Gold top-300) | 29.25 | 23.5 m, off-road, 0.5 s | 23.5 m, off-road, 0.5 s | 61.1 m, clean, 5.5 s | 59.4 m, clean, 5.5 s | 2 min / 2 h 50 / 2 h 41 / 6 h 00 |
 | ba91fe2c | day / slow / 83.0 | 32.48 | 1.5 m, collision (rear), 10.5 s | 1.6 m, collision (rear), 10.5 s | 74.9 m, clean, 8.0 s | 28.3 m, off-road, 4.0 s | 2 min / 2 h 49 / 2 h 56 / 6 h 16 (resumed: aux on 09-21, training on 09-23) |
+
+Time of day (`tod`) was corrected on 2026-10-06 against the frames themselves (front camera, real and rendered; first checked 2026-10-02): six clips are daytime, bb4394e7 is dawn and only e848c843 is night. The labels the queue was assembled with had four of them wrong (a2bd8a78, abd45a30 and 44c3b4d5 were tagged night, bb4394e7 day), so the queue is not the "4 day / 4 night" split it was meant to be, and no day/night breakdown of the fidelity result should be drawn from it. The dataset's own `hour_of_day` matches the frames for eight of the nine; ba91fe2c is tagged 02:00 but was filmed in daylight.
 
 
 **Result (n = 9 clips, final 2026-09-24).** Constant velocity reproduces NVIDIA's scene almost

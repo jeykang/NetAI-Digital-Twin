@@ -387,6 +387,54 @@ one shift is VaVAM with the narrow nuScenes view, where two of five seeds now ge
 work zone. That fits the reading above: with 65° the work zone is a close call for VaVAM,
 and the image detail tips it.
 
+## The nine twin clips in HUGSIM (2026-10-06, running)
+
+The question one clip cannot answer: does a map-free HUGS twin reproduce the reference
+simulator's verdicts as often as our NuRec twin does (7/9 for VaVAM, `nurec/README.md`)? The
+other eight clips of the twin queue now go through one script, with one protocol for all nine.
+
+**Pipeline** (`hugsim/pai/twin_hugsim.sh <clip>`, idempotent; `pai/twin_queue.sh` runs clips in
+sequence, logs and per-step timings in `runs/twin_queue/`):
+1. re-convert the clip's NCore store into a temporary directory (the twin queue's cleanup had
+   dropped the decoded camera streams; staging and the aux store are reused), ~2.5 min;
+2. `pai/load_ncore.py --aux-sseg` (pinhole rectification, aux Mask2Former semantics), ~1 min;
+3. `pai/prepare.sh` (dynamic masks, UniDepth, merged clouds), ~4 min, then
+   `pai/lidar_points.py` (LiDAR seeding), ~3 min;
+4. `pai/train.sh` on the LiDAR-seeded source → `data/scenes/pai/<short>_lidar`, ~2 h 20 min;
+5. `pai/export_actors.py`, then `pai/make_scenario.py`: the clip replayed as recorded — ego at
+   the first front-camera pose with the recorded start speed, every reconstructed moving vehicle
+   whose track spans ≥ 1 s replayed by `UnicyclePlanner` on its own path and timing, in its own
+   appearance (`configs/pai/<short>_lidar-rec-02.yaml`; on ac73935a it reproduces the hand-made
+   `ac73935a-rec-02.yaml`, plus track 19, a 1.1 s passing car the hand-made file left out);
+6. VaVAM with seeds 0–4 on the 100° front view (`configs/pai_camera_front100.yaml`, the closest
+   pinhole stand-in for AlpaSim's 120° f-theta image), and constant velocity;
+7. cleanup of what the same run created (temporary NCore store, checkpoints, depth, masks).
+
+**Comparison.** `rollouts.py` collects every AlpaSim and HUGSIM rollout into one table keyed by
+episode (`eval.rollout`, `EPISODES.md`), and `compare_simulators.py` puts, per clip, NVIDIA's
+scene in AlpaSim (the original run, the exact repeat and the PNG-frame run), our NuRec twin in
+AlpaSim, and our HUGS twin in HUGSIM side by side: failures over rollouts and the distance
+driven when the episode ended. A twin agrees when its majority verdict (fail or not) matches
+the reference's. "Fail" is `offroad_or_collision` in AlpaSim and a collision in HUGSIM; as above,
+the same physical failure can carry different labels, so where the policy fails matters more
+than the label. The starts also differ: AlpaSim replays 1.5 s of the recorded trajectory before
+the policy takes over, HUGSIM hands the policy the recorded start speed at t = 0.
+
+**The reference clip on this protocol:**
+
+| clip | AlpaSim, NVIDIA's scene | AlpaSim, our NuRec twin | HUGSIM, our HUGS twin |
+|---|---|---|---|
+| ac73935a, VaVAM | 3/3 failed, 37.6–42.7 m | 1/1 failed, 60.1 m | 5/5 failed (collision on the bend), 38.8–42.1 m |
+| ac73935a, constant velocity | 2/2 failed (rear-ended), 0.1 m | 1/1 failed, 0.1 m | 1/1 failed (rear-ended at 10.75 s), 0.0 m |
+
+The eight other clips are queued (~3 h each on the A10, started 2026-10-06 00:37 UTC); their rows
+replace this paragraph when the queue ends.
+
+```bash
+cd evaluation/hugsim && nohup setsid pai/twin_queue.sh <clip-uuid> [...] > runs/twin_queue/queue.log 2>&1 &
+cd evaluation && .skip_venv/bin/python rollouts.py && .skip_venv/bin/python compare_simulators.py [--policy constant_velocity]
+```
+
 ## Cheapest decisive test
 
 1. Install it on the workstation (pixi, x86 + A10) and run one released scene from

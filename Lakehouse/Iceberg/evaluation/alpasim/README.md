@@ -102,6 +102,16 @@ Verified 2026-09-21: one cached NuRec scene run this way reproduced the
 catalog-path per-clip metrics identically on all 16 columns (`runs/ws1-local-cv`
 vs `runs/20260914-235934`, `constant_velocity`). This closes FEASIBILITY.md risk 1.
 
+## Batches (2026-10-06)
+
+`./run_batch.sh <scene-list.txt> <run-prefix> [chunk=16]` runs a list of catalog scene ids
+(`clipgt-<clip-uuid>`, one per line) in chunks, one AlpaSim launch per chunk, into
+`runs/<run-prefix>-cNN/` with a `per_clip.parquet` each; a finished chunk is skipped on re-run.
+`DRIVER` (default `vavam`), `N_ROLLOUTS` and `EXTRA_ARGS` pass through to `run_scene.sh`. Every
+downloaded scene stays in `repo/data/nre-artifacts/all-usdzs` (~1.7 GB each), so the script checks
+for ~2 GB per scene + 5 GB free before each chunk and stops when it is short; it deletes nothing.
+Rollouts of every run join the scenario × episode tables through `../rollouts.py` (`eval.rollout`).
+
 ## Status
 
 Running end to end locally, in both directions:

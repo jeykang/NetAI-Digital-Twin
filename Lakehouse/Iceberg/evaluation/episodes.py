@@ -2,20 +2,31 @@
 """episodes.py — make the scenario x episode space an explicit object.
 
 An *episode* is a time window of one clip that a validator actually scores; a
-*scenario* is the class the episode belongs to (recording condition x augmentation
-x validator mode). Both have been implicit: the evaluator (harness.py) picks decision windows in
-memory, the Cosmos batch manifest records agent windows, and the NuRec catalog
-decides which clips can run closed-loop. This pre-pass enumerates all three as
-rows so they can be landed in Iceberg (nvidia_ingestion/build_episode_tables.py)
-and joined to evaluation results and curation scores.
+*scenario class* is what the episode belongs to (recording condition x augmentation
+x serving mode). Both had been implicit: the evaluator (evaluator.py) picks decision windows in
+memory, the Cosmos batch manifest records interaction windows, the NuRec catalog
+decides which clips can run closed-loop, and our own twins live in pipeline output
+directories. This pre-pass enumerates all of them as rows so they can be landed in
+Iceberg (nvidia_ingestion/build_episode_tables.py) and joined to evaluation results
+(evaluation/rollouts.py -> eval.rollout) and curation scores.
 
 Sources (each row says which):
-  decision_window   harness.decision_times() over a clip set, one row per decision
+  decision_window   evaluator.decision_times() over a clip set, one row per decision
                     point, window = [t0 - HISTORY_S, t0 + HORIZON_S]
-  aug_window        cosmos_augmentation/batch_manifest.json, the 121-frame agent
+  aug_window        cosmos_augmentation/batch_manifest.json, the 121-frame interaction
                     window each Cosmos variant was rendered from, one row per variant
   nurec_scene       AlpaSim's sim_scenes.csv: every clip with a NuRec reconstruction
                     (closed-loop capable), whole-scene window unknown until opened
+  twin_scene        our own twins: NuRec twins built by nurec/twin_pipeline.sh (served
+                    to AlpaSim) and HUGS twins built for HUGSIM (hugsim/pai/twin_hugsim.sh),
+                    one row per reconstruction found on disk
+
+Serving modes (TERMINOLOGY.md; the column was `validator_mode` before 2026-10-06):
+  openloop-mfpdms        the open-loop evaluator over recorded logs
+  augmented-openloop     the same over a Cosmos variant
+  closedloop-nurec       AlpaSim over NVIDIA's NuRec scene of the clip
+  closedloop-nurec-ours  AlpaSim over our NuRec twin of the clip (NVIDIA's map layers borrowed)
+  closedloop-hugsim      HUGSIM over our HUGS twin of the clip (no map)
 
 Columns follow the canonical Episode table (episode_id, from_clip_id, to_clip_id,
 frame_id_list) and add what the validators need. Runs on the host, not in Spark:
@@ -26,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import glob
 import json
 import os
 import sys
@@ -38,14 +50,17 @@ import pyarrow.parquet as pq
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from adapters import NvidiaAdapter, NVIDIA_ROOT  # noqa: E402
-from harness import decision_times, HORIZON_S, HISTORY_S, DECISION_FRACS  # noqa: E402
+from evaluator import decision_times, HORIZON_S, HISTORY_S, DECISION_FRACS  # noqa: E402
 
 ROOT_REPO = os.path.dirname(HERE)
 META = "/mnt/netai-e2e/nvidia-physicalai-av-subset/metadata/data_collection.parquet"
 MANIFEST = os.path.join(ROOT_REPO, "cosmos_augmentation", "batch_manifest.json")
 SIM_SCENES = os.path.join(HERE, "alpasim", "repo", "data", "scenes", "sim_scenes.csv")
 AUG_FRAMES = 121            # Cosmos-Transfer1 window length (stage_batch.py)
-WIN_US = 100_000            # agent presence tolerance at t0, same as the runners
+WIN_US = 100_000            # actor presence tolerance at t0, same as the runners
+NUREC_OUT = os.path.join(HERE, "nurec", "out")
+HUGSIM_SCENES = os.path.join(HERE, "hugsim", "data", "scenes", "pai")
+NCORE_STAGED = os.path.join(HERE, "ncore", "staged")
 
 # Recording condition from hour_of_day, the same bands edge_case_scorer's
 # time-of-day axis uses (see _time_of_day_score there): night is the hard end.
@@ -60,8 +75,9 @@ def condition_of(hour) -> str:
     return "day"                   # 8-17
 
 
-VALIDATOR_MODE = {"decision_window": "openloop-mfpdms", "aug_window": "augmented-openloop",
-                  "nurec_scene": "closedloop-nurec"}
+SERVING_MODE = {"decision_window": "openloop-mfpdms", "aug_window": "augmented-openloop",
+                "nurec_scene": "closedloop-nurec", "twin_nurec": "closedloop-nurec-ours",
+                "twin_hugsim": "closedloop-hugsim"}
 
 
 def scenario_id(condition: str, augmentation: str, mode: str) -> str:
@@ -87,7 +103,7 @@ def _decision_rows(clip_id: str):
     rows = []
     for req in (False, True):
         for k, t0 in enumerate(decision_times(sc, require_sensors=req)):
-            # agents present at t0: nearest sample of each track within WIN_US
+            # actors present at t0: nearest sample of each track within WIN_US
             n_ag = 0
             for tr in sc.agents.values():
                 if any(abs(b.t_us - t0) <= WIN_US for b in tr):
@@ -95,12 +111,12 @@ def _decision_rows(clip_id: str):
             rows.append({
                 "episode_id": f"{clip_id}:decision:{t0}:{'s' if req else 'a'}",
                 "from_clip_id": clip_id, "to_clip_id": clip_id, "frame_id_list": None,
-                "clip_id": clip_id, "kind": "decision_window", "source": "harness.decision_times",
+                "clip_id": clip_id, "kind": "decision_window", "source": "evaluator.decision_times",
                 "t0_us": int(t0), "t_start_us": int(t0 - HISTORY_S * 1e6),
                 "t_end_us": int(t0 + HORIZON_S * 1e6),
                 "horizon_s": HORIZON_S, "history_s": HISTORY_S, "decision_frac": DECISION_FRACS[k],
-                "require_sensors": req, "n_agents": n_ag,
-                "augmentation": "none", "validator_mode": VALIDATOR_MODE["decision_window"],
+                "require_sensors": req, "n_actors": n_ag,
+                "augmentation": "none", "serving_mode": SERVING_MODE["decision_window"],
             })
     return rows, None
 
@@ -134,8 +150,8 @@ def aug_windows():
             "clip_id": e["clip"], "kind": "aug_window", "source": "cosmos_augmentation/batch_manifest.json",
             "t0_us": t_start, "t_start_us": t_start, "t_end_us": t_end,
             "horizon_s": AUG_FRAMES / fps, "history_s": 0.0, "decision_frac": None,
-            "require_sensors": True, "n_agents": int(e.get("window_agents") or 0),
-            "augmentation": f"cosmos-{e['cond']}", "validator_mode": VALIDATOR_MODE["aug_window"],
+            "require_sensors": True, "n_actors": int(e.get("window_agents") or 0),
+            "augmentation": f"cosmos-{e['cond']}", "serving_mode": SERVING_MODE["aug_window"],
         })
     print(f"[episodes] augmentation windows: {len(rows)} rows")
     return rows
@@ -159,10 +175,66 @@ def nurec_scenes():
             "clip_id": clip, "kind": "nurec_scene", "source": f"alpasim sim_scenes.csv {r['hf_revision']}",
             "t0_us": None, "t_start_us": None, "t_end_us": None,
             "horizon_s": None, "history_s": None, "decision_frac": None,
-            "require_sensors": True, "n_agents": None,
-            "augmentation": "none", "validator_mode": VALIDATOR_MODE["nurec_scene"],
+            "require_sensors": True, "n_actors": None,
+            "augmentation": "none", "serving_mode": SERVING_MODE["nurec_scene"],
         })
     print(f"[episodes] nurec scenes: {len(rows)} rows")
+    return rows
+
+
+# ----------------------------------------------------------------------------- our twins
+def _full_clip_ids() -> dict:
+    """short (8-hex) -> full clip uuid, from the clips our pipelines have staged."""
+    out = {}
+    if os.path.isdir(NCORE_STAGED):
+        for c in os.listdir(NCORE_STAGED):
+            out.setdefault(c[:8], c)
+    for f in glob.glob(os.path.join(NUREC_OUT, "*.twin.json")):
+        c = json.load(open(f)).get("clip")
+        if c:
+            out.setdefault(c[:8], c)
+    return out
+
+
+def twin_episode_id(clip: str, mode: str, name: str) -> str:
+    """Episode id of one of our twins; evaluation/rollouts.py keys rollouts with the same function."""
+    return f"{clip}:twin:{mode}:{name}"
+
+
+def twin_scenes():
+    """One row per twin of ours found on disk (whole-scene episodes, like nurec_scene)."""
+    full = _full_clip_ids()
+    rows = []
+
+    def row(clip, mode_key, name, source):
+        return {"episode_id": twin_episode_id(clip, SERVING_MODE[mode_key], name),
+                "from_clip_id": clip, "to_clip_id": clip, "frame_id_list": None,
+                "clip_id": clip, "kind": "twin_scene", "source": source,
+                "t0_us": None, "t_start_us": None, "t_end_us": None,
+                "horizon_s": None, "history_s": None, "decision_frac": None,
+                "require_sensors": True, "n_actors": None,
+                "augmentation": "none", "serving_mode": SERVING_MODE[mode_key]}
+
+    # NuRec twins: <short>_a10_prod (twin queue) and ac73935a's prod_v3 / noaux_v2b variants
+    for d in sorted(glob.glob(os.path.join(NUREC_OUT, "*_a10_*"))):
+        name = os.path.basename(d)
+        if not os.path.isfile(os.path.join(d, "artifacts", "last.usdz")):
+            continue
+        clip = full.get(name[:8])
+        if clip:
+            src = ("nurec, NRE no-aux config" if "noaux" in name else "nurec, NRE prod config + aux store"
+                   + (" (twin_pipeline.sh)" if name.endswith("_a10_prod") else " (built by hand)"))
+            rows.append(row(clip, "twin_nurec", name, src))
+    # HUGS twins: data/scenes/pai/<short> (depth-seeded) and <short>_lidar (LiDAR-seeded)
+    for d in sorted(glob.glob(os.path.join(HUGSIM_SCENES, "*"))):
+        name = os.path.basename(d)
+        if not os.path.isfile(os.path.join(d, "scene.pth")):
+            continue
+        clip = full.get(name[:8])
+        if clip:
+            rows.append(row(clip, "twin_hugsim", name, "hugsim/pai/twin_hugsim.sh (LiDAR-seeded)"
+                            if name.endswith("_lidar") else "hugsim, UniDepth-seeded"))
+    print(f"[episodes] twins: {len(rows)} rows")
     return rows
 
 
@@ -176,6 +248,7 @@ def main():
     ap.add_argument("--no-decision", action="store_true")
     ap.add_argument("--no-aug", action="store_true")
     ap.add_argument("--no-nurec", action="store_true")
+    ap.add_argument("--no-twins", action="store_true")
     ap.add_argument("--out", default=os.path.join(ROOT_REPO, "user_data", "episodes.parquet"))
     ap.add_argument("--scenarios-out", default=os.path.join(ROOT_REPO, "user_data", "scenarios.parquet"))
     a = ap.parse_args()
@@ -199,6 +272,8 @@ def main():
         rows += aug_windows()
     if not a.no_nurec:
         rows += nurec_scenes()
+    if not a.no_twins:
+        rows += twin_scenes()
     if not rows:
         sys.exit("nothing to write")
 
@@ -210,7 +285,7 @@ def main():
         cond = {c: condition_of(h) for c, h in zip(t["clip_id"], t["hour_of_day"]) if c in need}
     for r in rows:
         r["condition"] = cond.get(r["clip_id"], "unknown")
-        r["scenario_id"] = scenario_id(r["condition"], r["augmentation"], r["validator_mode"])
+        r["scenario_id"] = scenario_id(r["condition"], r["augmentation"], r["serving_mode"])
         r["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
@@ -221,8 +296,8 @@ def main():
         ("frame_id_list", pa.string()), ("clip_id", pa.string()), ("kind", pa.string()),
         ("source", pa.string()), ("t0_us", pa.int64()), ("t_start_us", pa.int64()),
         ("t_end_us", pa.int64()), ("horizon_s", pa.float64()), ("history_s", pa.float64()),
-        ("decision_frac", pa.float64()), ("require_sensors", pa.bool_()), ("n_agents", pa.int32()),
-        ("augmentation", pa.string()), ("validator_mode", pa.string()), ("condition", pa.string()),
+        ("decision_frac", pa.float64()), ("require_sensors", pa.bool_()), ("n_actors", pa.int32()),
+        ("augmentation", pa.string()), ("serving_mode", pa.string()), ("condition", pa.string()),
         ("scenario_id", pa.string()), ("created_at", pa.string()),
     ])
     pq.write_table(pa.Table.from_pylist(rows, schema=schema), a.out)
@@ -230,7 +305,7 @@ def main():
     for r in rows:
         s = seen.setdefault(r["scenario_id"], {"scenario_id": r["scenario_id"], "condition": r["condition"],
                                                "augmentation": r["augmentation"],
-                                               "validator_mode": r["validator_mode"], "n_episodes": 0,
+                                               "serving_mode": r["serving_mode"], "n_episodes": 0,
                                                "n_clips": set()})
         s["n_episodes"] += 1; s["n_clips"].add(r["clip_id"])
     scen = [{**s, "n_clips": len(s["n_clips"])} for s in seen.values()]

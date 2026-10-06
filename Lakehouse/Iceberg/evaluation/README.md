@@ -209,7 +209,7 @@ because its clips are not in the on-disk subset.
 | `scenario.py` | `Scenario` / `Observation` types and the `DatasetAdapter` contract |
 | `adapters.py` | `NvidiaAdapter` (rig→world lift, footprint, tracks) |
 | `metrics.py` | MF-PDMS sub-metrics, OBB collision, comfort |
-| `harness.py` | decision times, no-future `Observation` construction, scoring |
+| `evaluator.py` (`harness.py` is a re-export shim) | decision times, no-future `Observation` construction, scoring; per-decision rows with `run_eval.py --per-decision` |
 | `policies.py` | `Policy` contract + oracle and naive baselines |
 | `policy_alpamayo.py` | Alpamayo-1.5-10B (real VLA driving model) through the same contract |
 | `run_eval.py` | CLI |

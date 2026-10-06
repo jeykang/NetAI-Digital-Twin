@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CLI: evaluate a driving policy over a slice of the lakehouse.
 
-    # calibrate the harness (oracle must be ~1.0, stationary must be safe-and-useless)
+    # calibrate the evaluator (oracle must be ~1.0, stationary must be safe-and-useless)
     python run_eval.py --policy replay_human --limit 200
     python run_eval.py --policy stationary   --limit 200
 
@@ -29,7 +29,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import adapters                     # noqa: E402
-import harness                      # noqa: E402
+import evaluator                    # noqa: E402
 import policies as P                # noqa: E402
 
 
@@ -148,6 +148,8 @@ def main():
     ap.add_argument("--shuffle", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--per-decision", default=None,
+                    help="also write one row per scored decision point (episode_id = nvidia_gold.episode's)")
     ap.add_argument("--workers", type=int, default=1,
                     help="parallel clip loading; scoring is I/O-bound")
     ap.add_argument("--require-sensors", action="store_true",
@@ -163,13 +165,14 @@ def main():
         policy.needs_sensors = True
     clips = select_clips(a, adapter)
     print(f"[eval] dataset={adapter.name} policy={policy.name} clips={len(clips)} "
-          f"horizon={harness.HORIZON_S}s dt={harness.DT_S}s", flush=True)
+          f"horizon={evaluator.HORIZON_S}s dt={evaluator.DT_S}s", flush=True)
 
     t0 = time.time()
-    rows = harness.evaluate(policy, adapter, clips, workers=a.workers)
+    rows = evaluator.evaluate(policy, adapter, clips, workers=a.workers)
     el = time.time() - t0
     if not rows:
         raise SystemExit("[eval] no clips scored — check the adapter root / clip ids")
+    decisions = [dict(d, clip_id=r["clip_id"], policy=r["policy"]) for r in rows for d in r.pop("_decisions", [])]
 
     print(f"\n===== MF-PDMS  policy={policy.name}  n={len(rows)} clips "
           f"({el/len(rows):.3f}s/clip) =====")
@@ -207,8 +210,8 @@ def main():
         "clips_requested": len(clips), "clips_scored": len(rows),
         "decisions_scored": n_dec,
         "workers": a.workers, "require_sensors": bool(a.require_sensors),
-        "horizon_s": harness.HORIZON_S, "dt_s": harness.DT_S,
-        "decision_fracs": list(harness.DECISION_FRACS),
+        "horizon_s": evaluator.HORIZON_S, "dt_s": evaluator.DT_S,
+        "decision_fracs": list(evaluator.DECISION_FRACS),
         "wall_total_s": round(el, 1),
         "s_per_clip": round(el / max(1, len(rows)), 3),
         "s_per_decision": round(el / max(1, n_dec), 3),
@@ -279,6 +282,10 @@ def main():
     mp = os.path.splitext(out)[0] + ".runmeta.json"
     json.dump(meta, open(mp, "w"), indent=1)
     print(f"\nwrote {out}\nwrote {mp}")
+    if a.per_decision:
+        import pyarrow as pa, pyarrow.parquet as pq
+        pq.write_table(pa.Table.from_pylist(decisions), a.per_decision)
+        print(f"wrote {a.per_decision} ({len(decisions)} decisions)")
 
 
 if __name__ == "__main__":

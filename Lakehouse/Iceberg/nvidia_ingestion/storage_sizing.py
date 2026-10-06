@@ -15,15 +15,19 @@ the CLI to move the assumptions.
 from __future__ import annotations
 
 import argparse
+import glob
+import json
 import os
+import statistics
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+EVAL = os.path.join(HERE, "..", "evaluation")
 
 # ----------------------------------------------------------------------------- measured constants
 MEASURED = {
     # accumulation tier
     "raw_full_sensor_clip_mb": 600,     # camera 235 + lidar 356 + radar 8 + labels 0.4 MB, clip 2daf9698 (NFS, 2026-09-21)
-    "raw_on_disk_mean_mb": 409,         # 13.5 TB / 32,986 clips on disk (MEDALLION_PROGRESS.md); most clips lack lidar
+    "raw_on_disk_mean_mb": 409,         # 13.5 TB / 32,986 clips on disk (MEDALLION_PROGRESS.md); below the 600 MB full-sensor clip although 31,812 on-disk clips do have LiDAR (gap not attributed)
     "corpus_clips": 306_152,            # clip_index.parquet
     "on_disk_clips": 32_986,            # MEDALLION_PROGRESS.md
     "gold_clips": 3_176,                # MEDALLION_PROGRESS.md (noisy-OR union, sensor-covered)
@@ -36,10 +40,38 @@ MEASURED = {
     # regeneration
     "cosmos_window_gpu_min": 33.6,      # 7 h / 50 windows on 4 x A100-40GB = 8.4 wall-min x 4 GPUs (E-B, git 167a3f4)
     "cosmos_keep_rate": 0.86,           # 43 / 50 passed the hallucination gate (E-B)
-    "nurec_scene_gpu_h": None,          # not measured: per-scene optimisation, >24 GB VRAM (FEASIBILITY.md 3c)
     "openloop_s_per_clip": 0.46,        # track-only, 8 workers (BENCHMARKS.md)
-    "closedloop_s_per_scene": 33,       # VaVAM, 30 scenes in 15.5 min locally (alpasim/runs/vavam-batch2)
+    "openloop_sut_s_per_clip": 11.6,    # VaVAM's own open-loop pass, 1 worker on one GPU (evaluation/.results_nurec_vavam.runmeta.json)
+    "closedloop_s_per_scene": 38,       # VaVAM, 40 scenes in 25 min wall incl. downloads (ALPASIM.md batch 3)
+    # the two twin kinds (per clip, on the A10; hours are read from the pipelines' timing files when present)
+    "hugs_scene_gb": 1.0,               # LiDAR-seeded HUGSIM export of ac73935a (HUGSIM.md)
+    "nurec_psnr_db": 29.5,              # median held-out PSNR of the nine NuRec twins (evaluation/nurec/README.md)
+    "hugs_psnr_db": 26.4,               # ac73935a, LiDAR-seeded (HUGSIM.md)
+    "aux_semantics_a10_h": 2.9,         # NRE aux store (Mask2Former on 6 cameras + LiDAR seg), median of the twin queue; the HUGS twin reuses its labels
+    # Cosmos-Transfer2.5 on the DGX Spark (cosmos_augmentation/FINDINGS.md)
+    "cosmos25_window_mb": 4.0,          # 4 s single-camera window, 1080p/30 fps
+    "cosmos25_gb10_min_per_video_s": 22.5,  # 90 min wall for 4 s of video, one condition
 }
+
+
+def twin_hours() -> dict:
+    """Per-clip A10 hours of each twin kind, from the pipelines' own timing files.
+
+    NuRec: nurec/out/<short>.twin.json, time to the AlpaSim bundle, clips whose aux store was
+    built in the same run (one resumed run excluded). HUGS: hugsim/runs/twin_queue/<short>.json,
+    time to the export, clips that went through every step in one run.
+    """
+    nurec, hugs = [], []
+    for f in glob.glob(os.path.join(EVAL, "nurec", "out", "*.twin.json")):
+        st = json.load(open(f))["steps"]
+        if st.get("aux", {}).get("t_s", 0) > 3600 and "bundle" in st:
+            nurec.append(st["bundle"]["t_s"] / 3600)
+    for f in glob.glob(os.path.join(EVAL, "hugsim", "runs", "twin_queue", "*.json")):
+        st = json.load(open(f)).get("steps", {})
+        if st.get("convert", {}).get("step_s", 0) > 0 and st.get("train", {}).get("status") == "ok":
+            hugs.append(st["train"]["t_s"] / 3600)
+    return {"nurec_h": statistics.median(nurec) if nurec else 5.9, "nurec_n": len(nurec),
+            "hugs_h": statistics.median(hugs) if hugs else 2.7, "hugs_n": len(hugs)}
 
 
 def fmt_tb(gb): return f"{gb/1024:.2f} TB" if gb >= 1024 else f"{gb:.0f} GB"
@@ -115,21 +147,71 @@ def model(a):
 
     # ---------------------------------------------------------------- twin reconstruction
     P("## The twin itself\n")
-    P(f"NuRec reconstruction per scene is not measured here (needs >24 GB VRAM; FEASIBILITY.md 3c). Its storage is "
-      f"known: {m['nurec_scene_gb_catalog']} GB/scene, so a full-Gold twin of {m['gold_clips']:,} scenes is "
-      f"{fmt_tb(m['gold_clips']*m['nurec_scene_gb_catalog'])} — {m['gold_clips']*m['nurec_scene_gb_catalog']/(m['gold_clips']*m['raw_full_sensor_clip_mb']/1024):.1f}x "
-      f"the raw media of the same clips. The twin, not the variants, is what dominates serving storage, and it is "
-      f"also what re-curation churns: every clip that enters Gold needs a reconstruction, every clip that leaves "
-      f"holds {m['nurec_scene_gb_catalog']} GB until evicted. Measuring one reconstruction on an L40S is the "
-      f"missing constant.\n")
+    th = twin_hours()
+    P("Two twin kinds now exist (`evaluation/EPISODES.md`, serving modes `closedloop-nurec-ours` and "
+      "`closedloop-hugsim`), with measured per-clip costs on the A10 (23 GB; an L40S would be faster):\n")
+    P("| twin | A10 hours per clip | storage per scene | held-out PSNR | basis |\n|---|---|---|---|---|")
+    P(f"| NuRec (NRE prod config + aux store) | {th['nurec_h']:.1f} | {m['nurec_scene_gb_catalog']} GB | {m['nurec_psnr_db']} dB (median) "
+      f"| median of {th['nurec_n']} uninterrupted runs of `nurec/twin_pipeline.sh` (aux ~2.9 h + training ~2.8 h) |")
+    hb = (f"median of {th['hugs_n']} runs of `hugsim/pai/twin_hugsim.sh`" if th["hugs_n"]
+          else "ac73935a: preprocessing ~0.3 h + ground 26 min + scene 1 h 56 min")
+    hugs_fresh = th["hugs_h"] + m["aux_semantics_a10_h"]
+    P(f"| HUGS (LiDAR-seeded), semantics already built | {th['hugs_h']:.1f} | {m['hugs_scene_gb']} GB | {m['hugs_psnr_db']} dB (one clip) | {hb} |")
+    P(f"| HUGS (LiDAR-seeded), fresh clip | {hugs_fresh:.1f} | {m['hugs_scene_gb']} GB | — | + the NRE aux store for its semantic labels "
+      f"(~{m['aux_semantics_a10_h']} h; HUGSIM's own InverseForm path is unmeasured) |")
+    P("")
+    P("| Gold clips N | NuRec: storage | NuRec: A10-years | HUGS: storage | HUGS, fresh clips: A10-years |\n|---|---|---|---|---|")
+    for N in a.gold_sizes:
+        P(f"| {N:,} | {fmt_tb(N*m['nurec_scene_gb_catalog'])} | {N*th['nurec_h']/8766:.2f} | "
+          f"{fmt_tb(N*m['hugs_scene_gb'])} | {N*hugs_fresh/8766:.2f} |")
+    P("")
+    P(f"The twin, not the variants, dominates both serving storage and GPU time, and it is what re-curation "
+      f"churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until "
+      f"evicted. At {m['gold_clips']:,} Gold clips a NuRec twin of everything is "
+      f"{fmt_tb(m['gold_clips']*m['nurec_scene_gb_catalog'])} and {m['gold_clips']*th['nurec_h']/8766:.1f} A10-years. "
+      f"The HUGS twin needs about half the storage, at ~3 dB lower fidelity; its GPU time is half only where the "
+      f"clip's semantic labels already exist, and about the same as NuRec's ({hugs_fresh:.1f} h) where the NRE aux "
+      f"tool has to make them, so a cheaper semantic source is what would make it the cheap twin. With {a.recuration_months[0]}-month "
+      f"re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs "
+      f"{m['gold_clips']*0.3*th['nurec_h']*12/a.recuration_months[0]:,.0f} A10-hours a year. Which clips earn a "
+      f"twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.\n")
 
     # ---------------------------------------------------------------- validation cost
     P("## Validation cost per re-curation\n")
     P("| step | per clip | N = 3,176 Gold, one policy | basis |\n|---|---|---|---|")
-    P(f"| open-loop screen | {m['openloop_s_per_clip']} s | {m['gold_clips']*m['openloop_s_per_clip']/3600:.1f} h | BENCHMARKS.md, 8 workers |")
-    P(f"| closed-loop rollout, small policy | {m['closedloop_s_per_scene']} s | {m['gold_clips']*m['closedloop_s_per_scene']/3600:.1f} h | vavam-batch2 locally |")
-    P(f"| closed-loop at a {a.budget:.0%} skip budget | — | {m['gold_clips']*a.budget*m['closedloop_s_per_scene']/3600:.1f} h | evaluation/skip.py |")
+    G = m["gold_clips"]
+    P(f"| open-loop reference ladder (five track-only policies) | {m['openloop_s_per_clip']} s | {G*m['openloop_s_per_clip']/3600:.1f} h CPU | BENCHMARKS.md, 8 workers |")
+    P(f"| open-loop pass of the policy under test (VaVAM) | {m['openloop_sut_s_per_clip']} s | {G*m['openloop_sut_s_per_clip']/3600:.1f} GPU-h | `.results_nurec_vavam.runmeta.json`, 1 worker |")
+    P(f"| closed-loop rollout (VaVAM) | {m['closedloop_s_per_scene']} s | {G*m['closedloop_s_per_scene']/3600:.1f} GPU-h | ALPASIM.md batch 3 |")
+    P(f"| closed-loop at a {a.budget:.0%} triage budget | — | {G*a.budget*m['closedloop_s_per_scene']/3600:.1f} GPU-h | evaluation/skip.py |")
     P("")
+    full = G * m["closedloop_s_per_scene"] / 3600
+    sunk = full * (1 - a.budget)
+    paid = full - (G * m["openloop_sut_s_per_clip"] / 3600 + G * a.budget * m["closedloop_s_per_scene"] / 3600)
+    P(f"The screen's signal comes from the policy's own open-loop pass, not from the track-only ladder "
+      f"(`evaluation/SKIP.md`), so what a {a.budget:.0%} budget saves depends on whether that pass is run anyway. "
+      f"If the proving ground scores every curated clip open-loop regardless (its first rung), the screen is free "
+      f"and the budget saves **{sunk:.1f} of {full:.1f} GPU-hours** per policy per re-curation. If the open-loop pass "
+      f"is run only to triage, it costs {G*m['openloop_sut_s_per_clip']/3600:.1f} GPU-h and the saving shrinks to "
+      f"**{paid:.1f} GPU-hours ({paid/full:.0%})**.\n")
+
+    # ---------------------------------------------------------------- measured since 2026-09-21
+    P("## Measured constants since the model was written\n")
+    P("| constant | modelled before | measured | where |\n|---|---|---|---|")
+    P(f"| NuRec twin, per clip | L40S number missing; regeneration ~19.5 A100-h per clip-condition (all steps) | "
+      f"{th['nurec_h']:.1f} h on one A10 end to end (aux ~2.9 h, training ~2.8 h; ac73935a's v3 training alone "
+      f"2 h 05 m at 4.0–4.4 it/s plus ~10 min validation/export) | `evaluation/nurec/README.md` |")
+    P(f"| HUGS twin, per clip | — | {th['hugs_h']:.1f} h on one A10 given the clip's aux semantics "
+      f"({th['hugs_h'] + m['aux_semantics_a10_h']:.1f} h with them), {m['hugs_scene_gb']} GB export | `evaluation/HUGSIM.md` |")
+    P(f"| Cosmos variant, single-camera 4 s window | 235 MB per condition for six cameras over a whole clip (assumption kept) | "
+      f"{m['cosmos25_window_mb']} MB at 1080p/30 fps (Transfer2.5 encode), 90 min wall on the DGX Spark's GB10 ≈ "
+      f"{m['cosmos25_gb10_min_per_video_s']:.0f} GB10-min per second of video per condition | `cosmos_augmentation/FINDINGS.md` |")
+    P(f"| policy under test, open-loop | ~0.5 s per clip assumed for every rung of the screen | {m['openloop_sut_s_per_clip']} s "
+      f"per clip (VaVAM, one GPU) | `evaluation/.results_nurec_vavam.runmeta.json` |")
+    P("")
+    P("The A10 figures are lower bounds on an L40S; the Spark figure is ~10× the wall time of one 4×A100 node per "
+      "second of video, on hardware that queues nothing. None of them changes the store-vs-regenerate verdict "
+      "(break-even stays in the hundreds of years).\n")
     return "\n".join(out)
 
 
@@ -145,12 +227,12 @@ def main():
     ap.add_argument("--recuration-months", type=lambda s: [int(x) for x in s.split(",")], default=[6, 12])
     ap.add_argument("--tb-month-usd", type=float, default=20.0, help="storage price assumption")
     ap.add_argument("--gpu-hour-usd", type=float, default=2.0, help="A100 price assumption")
-    ap.add_argument("--budget", type=float, default=0.5, help="skip-policy rollout budget")
+    ap.add_argument("--budget", type=float, default=0.5, help="rollout-triage budget (fraction of clips rolled out)")
     ap.add_argument("--out", default=os.path.join(HERE, "STORAGE_SIZING.md"))
     a = ap.parse_args()
 
     body = model(a)
-    head = ("# Storage sizing — accumulation vs serving (2026-09-21)\n\n"
+    head = ("# Storage sizing — accumulation vs serving (2026-09-21, regenerated 2026-10-06)\n\n"
             "Generated by `storage_sizing.py`; rerun with different assumptions rather than editing.\n\n")
     open(a.out, "w").write(head + body)
     print(body)

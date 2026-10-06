@@ -119,3 +119,6 @@ archive/reports/
 archive/paper/
 # DataX cluster access: control-plane host, another tenant's namespace and admission policies
 deploy/k8s/
+
+# local-only roadmap (names people and internal plans; the repo is public)
+ROADMAP.md

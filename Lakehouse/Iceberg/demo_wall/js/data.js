@@ -11,7 +11,7 @@
  * serving mode, rollout triage.
  */
 window.WALL_DATA = {
-  snapshot: "2026-10-02",
+  snapshot: "2026-10-06",
 
   brand: {
     name: "<b>EAD</b>-Data Lakehouse",
@@ -62,16 +62,16 @@ window.WALL_DATA = {
     },
     {
       id: "serve", idx: "03", title: "Serve", ko: "진열",
-      rail: { value: "189,626", unit: "episodes" },
+      rail: { value: "189,638", unit: "episodes" },
       headline: "Served the way each validator reads",
       lede: "Gold is cut into episodes and materialised per serving mode: decision windows for open-loop scoring, NuRec scenes for closed-loop simulation, Cosmos-Transfer weather variants to stress camera perception.",
       stats: [
-        // nvidia_gold.episode total-records (2026-09-21)
-        { value: 189626, label: "episodes in nvidia_gold.episode" },
-        // nvidia_gold.scenario: 3 conditions × 3 serving modes + 9 augmentation classes
-        { value: 16, label: "scenario classes" },
-        // evaluation/materialize.py: openloop, nurec, ncore
-        { value: 3, label: "serving modes: open-loop · NuRec · NCore v4" },
+        // nvidia_gold.episode total-records (rebuilt 2026-10-06 with our twins; evaluation/EPISODES.md)
+        { value: 189638, label: "episodes in nvidia_gold.episode" },
+        // nvidia_gold.scenario (2026-10-06): 20 classes incl. our NuRec and HUGS twins (evaluation/EPISODES.md)
+        { value: 20, label: "scenario classes" },
+        // evaluation/materialize.py: openloop, nurec, ncore, hugsim
+        { value: 4, label: "serving modes: open-loop · NuRec · NCore v4 · HUGSIM" },
       ],
       // nvidia_gold.scenario, rows = recording condition, columns = serving mode
       scenario_grid: {
@@ -131,12 +131,14 @@ window.WALL_DATA = {
       id: "triage", idx: "06", title: "Triage", ko: "선별",
       rail: { value: "66 %", unit: "at ½ budget" },
       headline: "Spend GPU time where failures are",
-      lede: "A three-second open-loop screen, six reference policies per clip, ranks which clips earn a 38-second closed-loop rollout. The budget is a dial.",
+      lede: "An open-loop screen ranks which clips earn a 38-second closed-loop rollout: the policy's own open-loop pass, read against five reference policies. The budget is a dial.",
       stats: [
         // evaluation/SKIP.md: ladder-only screen, n = 80, at-fault target
         { value: "66", suffix: " %", label: "of at-fault failures found with half the rollouts (random: 50 %)" },
-        { value: "~17", suffix: " GPU-h", label: "saved per policy per Gold re-curation" },
-        { value: "3 s vs 38 s", label: "screen vs closed-loop rollout, per clip" },
+        // nvidia_ingestion/STORAGE_SIZING.md, validation cost: 16.8 of 33.5 GPU-h when the open-loop pass is run anyway
+        { value: "~17", suffix: " GPU-h", label: "saved per policy per Gold re-curation, open-loop pass already run" },
+        // evaluation/SKIP.md (2026-10-06): VaVAM's own open-loop pass 11.6 s/clip on one GPU; rollout ~38 s
+        { value: "12 s vs 38 s", label: "open-loop screen vs closed-loop rollout, per clip" },
       ],
       budget: 0.5,
       // fallback when media.js has no triage block (SKIP.md table, screen row)

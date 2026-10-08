@@ -59,17 +59,17 @@ Two twin kinds now exist (`evaluation/EPISODES.md`, serving modes `closedloop-nu
 | twin | A10 hours per clip | storage per scene | held-out PSNR | basis |
 |---|---|---|---|---|
 | NuRec (NRE prod config + aux store) | 5.8 | 1.79 GB | 29.5 dB (median) | median of 7 uninterrupted runs of `nurec/twin_pipeline.sh` (aux ~2.9 h + training ~2.8 h) |
-| HUGS (LiDAR-seeded), semantics already built | 2.7 | 1.0 GB | 26.4 dB (one clip) | ac73935a: preprocessing ~0.3 h + ground 26 min + scene 1 h 56 min |
-| HUGS (LiDAR-seeded), fresh clip | 5.6 | 1.0 GB | — | + the NRE aux store for its semantic labels (~2.9 h; HUGSIM's own InverseForm path is unmeasured) |
+| HUGS (LiDAR-seeded), semantics already built | 3.5 | 1.0 GB | 26.4 dB (median of nine) | median of 8 runs of `hugsim/pai/twin_hugsim.sh` |
+| HUGS (LiDAR-seeded), fresh clip | 6.4 | 1.0 GB | — | + the NRE aux store for its semantic labels (~2.9 h; HUGSIM's own InverseForm path is unmeasured) |
 
 | Gold clips N | NuRec: storage | NuRec: A10-years | HUGS: storage | HUGS, fresh clips: A10-years |
 |---|---|---|---|---|
-| 500 | 895 GB | 0.33 | 500 GB | 0.32 |
-| 1,000 | 1.79 TB | 0.67 | 1.00 TB | 0.64 |
-| 3,176 | 5.69 TB | 2.12 | 3.18 TB | 2.03 |
-| 10,000 | 17.90 TB | 6.67 | 10.00 TB | 6.39 |
+| 500 | 895 GB | 0.33 | 500 GB | 0.37 |
+| 1,000 | 1.79 TB | 0.67 | 1.00 TB | 0.74 |
+| 3,176 | 5.69 TB | 2.12 | 3.18 TB | 2.34 |
+| 10,000 | 17.90 TB | 6.67 | 10.00 TB | 7.36 |
 
-The twin, not the variants, dominates both serving storage and GPU time, and it is what re-curation churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until evicted. At 3,176 Gold clips a NuRec twin of everything is 5.69 TB and 2.1 A10-years. The HUGS twin needs about half the storage, at ~3 dB lower fidelity; its GPU time is half only where the clip's semantic labels already exist, and about the same as NuRec's (5.6 h) where the NRE aux tool has to make them, so a cheaper semantic source is what would make it the cheap twin. With 6-month re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs 11,145 A10-hours a year. Which clips earn a twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.
+The twin, not the variants, dominates both serving storage and GPU time, and it is what re-curation churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until evicted. At 3,176 Gold clips a NuRec twin of everything is 5.69 TB and 2.1 A10-years. The HUGS twin needs about half the storage, at ~3 dB lower fidelity. Its GPU time is 61% of NuRec's where the clip's semantic labels already exist, and it varies far more from clip to clip (1.8 to 8.2 h over eight clips; the slowest scenes trained at about a third of the usual iteration rate, 1.35 it/s on 44c3b4d5); where the NRE aux tool has to make the labels it costs about as much as NuRec (6.4 h). Its case is coverage, not cost: it needs no HD map and no NVIDIA scene. With 6-month re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs 11,145 A10-hours a year. Which clips earn a twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.
 
 ## Validation cost per re-curation
 
@@ -87,7 +87,7 @@ The screen's signal comes from the policy's own open-loop pass, not from the tra
 | constant | modelled before | measured | where |
 |---|---|---|---|
 | NuRec twin, per clip | L40S number missing; regeneration ~19.5 A100-h per clip-condition (all steps) | 5.8 h on one A10 end to end (aux ~2.9 h, training ~2.8 h; ac73935a's v3 training alone 2 h 05 m at 4.0–4.4 it/s plus ~10 min validation/export) | `evaluation/nurec/README.md` |
-| HUGS twin, per clip | — | 2.7 h on one A10 given the clip's aux semantics (5.6 h with them), 1.0 GB export | `evaluation/HUGSIM.md` |
+| HUGS twin, per clip | — | 3.5 h on one A10 given the clip's aux semantics (6.4 h with them), 1.0 GB export | `evaluation/HUGSIM.md` |
 | Cosmos variant, single-camera 4 s window | 235 MB per condition for six cameras over a whole clip (assumption kept) | 4.0 MB at 1080p/30 fps (Transfer2.5 encode), 90 min wall on the DGX Spark's GB10 ≈ 22 GB10-min per second of video per condition | `cosmos_augmentation/FINDINGS.md` |
 | policy under test, open-loop | ~0.5 s per clip assumed for every rung of the screen | 11.6 s per clip (VaVAM, one GPU) | `evaluation/.results_nurec_vavam.runmeta.json` |
 

@@ -312,12 +312,13 @@ What this shows, on one clip:
   (±0.7 m at the crash in both rigs, except one 100° seed that got 9 m further).
 - **Timing differs, location agrees.** HUGSIM's ego leaves at t = 0 and accelerates at
   ~3 m/s², to 7 m/s (65° runs) or 11 m/s (100° runs). AlpaSim's ego stays put until
-  ~3 s (the 1.5 s ground-truth warm-up, then 1.5 s more) and then cruises at ~7.5 m/s.
+  ~3 s (its 3.0 s recorded warm-up) and then cruises at ~7.5 m/s.
   So the bend comes at 5–6 s in HUGSIM and at 9–9.5 s in AlpaSim.
 - **The traffic light differs.** It is red at t = 0 in both AlpaSim scenes and green in
-  the static HUGS reconstruction, so VaVAM runs a red light only in AlpaSim. That may be
-  why it waits the extra 1.5 s there; the plans are not logged, so this is not
-  established. The failure itself comes ~38 m past the signal in both simulators.
+  the static HUGS reconstruction, so VaVAM runs a red light only in AlpaSim. (AlpaSim's ego
+  waits there for its first 3 s only because the recorded stop is replayed during the 3.0 s
+  warm-up; corrected 2026-10-07, this bullet used to blame a 1.5 s warm-up.) The failure
+  itself comes ~38 m past the signal in both simulators.
 - **Recorded traffic, replayed.** Constant velocity stays stopped and is rear-ended by the
   queue in both simulators: at 10.5–10.75 s in HUGSIM (the recorded cars or stand-ins on
   their fitted tracks) and at 11.0 s in AlpaSim.
@@ -417,7 +418,7 @@ AlpaSim, and our HUGS twin in HUGSIM side by side: failures over rollouts and th
 driven when the episode ended. A twin agrees when its majority verdict (fail or not) matches
 the reference's. "Fail" is `offroad_or_collision` in AlpaSim and a collision in HUGSIM; as above,
 the same physical failure can carry different labels, so where the policy fails matters more
-than the label. The starts also differ: AlpaSim replays 1.5 s of the recorded trajectory before
+than the label. The starts also differ: AlpaSim replays 3.0 s of the recorded trajectory before
 the policy takes over, HUGSIM hands the policy the recorded start speed at t = 0. The policy also runs on
 different GPUs (the A10 under AlpaSim, the RTX 6000 as HUGSIM's client), and seeded VaVAM is not
 reproducible across GPUs (`SKIP.md`, 2026-10-06), so hardware is part of the run-to-run noise here.
@@ -450,6 +451,39 @@ while the first of them was still training; only ac73935a's HUGSIM runs existed)
    before the VaVAM comparison is read.
 6. *Reported regardless of outcome:* all nine rows, including clips where a twin fails to build;
    a clip that cannot be built counts as not agreeing.
+
+**Rule 5 fired (2026-10-07, interim look at six clips).** Constant velocity disagreed with
+NVIDIA's scene on 2 of 6 clips in HUGSIM (0 of 6 for the NuRec twin), so, as the rule says, the
+protocol was examined before any VaVAM verdict was read. Three causes, none of them the HUGS
+reconstruction:
+1. *Off-road did not count in HUGSIM.* HUGSIM never ends an episode for leaving the road, and its
+   DAC term scores the planned trajectory; its per-frame check on the ego's footprint is commented
+   out in the scorer. `summarize_runs.py` now reproduces that check post hoc, and `rollouts.py`
+   counts the first of off-road and collision as the failure, with the distance driven by then.
+2. *AlpaSim replays 3.0 s of the recorded drive before handing over* (`force_gt_duration_us`; the
+   "1.5 s" earlier in this file was wrong), and HUGSIM handed over at t = 0. The clients now take
+   `--warmup 3.0` (`clients/warmup.py`: the recorded front-camera path, sent as the plan until 3 s).
+3. *Neither constant velocity held its speed.* HUGSIM's client re-read the simulator's speed each
+   step and drifted up with the controller (5.0 → 7.4 m/s on a07e81de); AlpaSim's braked at
+   handover, because AlpaSim reports zero speed during the recorded warm-up and our policy bridge
+   passed it on (`ALPASIM.md`, Batch 2 correction; bridge fixed). The HUGSIM client now holds the
+   recorded speed at handover (`--hold-speed`).
+One difference is definitional and stays: AlpaSim's off-road check uses map lanes and road edges,
+HUGSIM's the reconstructed road surface, so a drift that crosses a lane edge on a wide road fails
+in AlpaSim only (constant velocity on 0ec48454). The comparison is reported under both protocols:
+the original runs (`compare_simulators.py --protocol original`) and the corrected ones
+(`--protocol warmup`: HUGSIM episodes in `runs/pai_cvwu_ltf/` and `runs/pai_vavam_front100wu_s*_ltf/`,
+AlpaSim constant velocity in `alpasim/runs/<short>_nvidia_cv2/`; run by `../rerun_after_fixes.sh`).
+The verdict and location rules above are unchanged.
+
+Two follow-ups from the first warm-up episodes (2026-10-07): the first version of the warm-up aimed
+the plan at the recorded positions, so a stopped ego chased centimetre offsets and turned 12° on the
+spot (ac73935a); it now sends the recorded *displacements*, all zeros while the recording stands
+still, and those seven episodes were discarded. And bb4394e7's HUGS twin has reconstructed
+background (non-road Gaussians) ~0.3–0.6 m ahead of the start pose: any policy that moves collides
+there (VaVAM after 0.56 m, constant velocity after 0.35 m), while in AlpaSim VaVAM drives 10–13 m.
+That is a twin artifact (collision geometry comes from semantic labels and floaters in HUGSIM), to be
+inspected before the clip's verdict is read; under rule 6 it still counts as a row.
 
 ```bash
 cd evaluation/hugsim && nohup setsid pai/twin_queue.sh <clip-uuid> [...] > runs/twin_queue/queue.log 2>&1 &

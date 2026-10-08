@@ -46,7 +46,7 @@ MEASURED = {
     # the two twin kinds (per clip, on the A10; hours are read from the pipelines' timing files when present)
     "hugs_scene_gb": 1.0,               # LiDAR-seeded HUGSIM export of ac73935a (HUGSIM.md)
     "nurec_psnr_db": 29.5,              # median held-out PSNR of the nine NuRec twins (evaluation/nurec/README.md)
-    "hugs_psnr_db": 26.4,               # ac73935a, LiDAR-seeded (HUGSIM.md)
+    "hugs_psnr_db": 26.4,               # median held-out PSNR of the nine HUGS twins, 24.2-28.8 dB (hugsim/data/models/*/results.json)
     "aux_semantics_a10_h": 2.9,         # NRE aux store (Mask2Former on 6 cameras + LiDAR seg), median of the twin queue; the HUGS twin reuses its labels
     # Cosmos-Transfer2.5 on the DGX Spark (cosmos_augmentation/FINDINGS.md)
     "cosmos25_window_mb": 4.0,          # 4 s single-camera window, 1080p/30 fps
@@ -156,7 +156,7 @@ def model(a):
     hb = (f"median of {th['hugs_n']} runs of `hugsim/pai/twin_hugsim.sh`" if th["hugs_n"]
           else "ac73935a: preprocessing ~0.3 h + ground 26 min + scene 1 h 56 min")
     hugs_fresh = th["hugs_h"] + m["aux_semantics_a10_h"]
-    P(f"| HUGS (LiDAR-seeded), semantics already built | {th['hugs_h']:.1f} | {m['hugs_scene_gb']} GB | {m['hugs_psnr_db']} dB (one clip) | {hb} |")
+    P(f"| HUGS (LiDAR-seeded), semantics already built | {th['hugs_h']:.1f} | {m['hugs_scene_gb']} GB | {m['hugs_psnr_db']} dB (median of nine) | {hb} |")
     P(f"| HUGS (LiDAR-seeded), fresh clip | {hugs_fresh:.1f} | {m['hugs_scene_gb']} GB | — | + the NRE aux store for its semantic labels "
       f"(~{m['aux_semantics_a10_h']} h; HUGSIM's own InverseForm path is unmeasured) |")
     P("")
@@ -169,9 +169,11 @@ def model(a):
       f"churns: every clip that enters Gold needs a reconstruction, every clip that leaves holds its scene until "
       f"evicted. At {m['gold_clips']:,} Gold clips a NuRec twin of everything is "
       f"{fmt_tb(m['gold_clips']*m['nurec_scene_gb_catalog'])} and {m['gold_clips']*th['nurec_h']/8766:.1f} A10-years. "
-      f"The HUGS twin needs about half the storage, at ~3 dB lower fidelity; its GPU time is half only where the "
-      f"clip's semantic labels already exist, and about the same as NuRec's ({hugs_fresh:.1f} h) where the NRE aux "
-      f"tool has to make them, so a cheaper semantic source is what would make it the cheap twin. With {a.recuration_months[0]}-month "
+      f"The HUGS twin needs about half the storage, at ~3 dB lower fidelity. Its GPU time is "
+      f"{th['hugs_h']/th['nurec_h']:.0%} of NuRec's where the clip's semantic labels already exist, and it varies far "
+      f"more from clip to clip (1.8 to 8.2 h over eight clips; the slowest scenes trained at about a third of the usual "
+      f"iteration rate, 1.35 it/s on 44c3b4d5); where the NRE aux tool has to make the labels it costs about as much as NuRec ({hugs_fresh:.1f} h). "
+      f"Its case is coverage, not cost: it needs no HD map and no NVIDIA scene. With {a.recuration_months[0]}-month "
       f"re-curation and 30 % turnover, keeping a NuRec twin of every Gold clip costs "
       f"{m['gold_clips']*0.3*th['nurec_h']*12/a.recuration_months[0]:,.0f} A10-hours a year. Which clips earn a "
       f"twin, and of which kind, is therefore a triage decision of the same shape as which clips earn a rollout.\n")

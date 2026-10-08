@@ -18,9 +18,12 @@
 #                                           constant velocity (run_closed_loop.sh)
 #   9. summary                              summarize_runs.py -> runs/twin_queue/<short>.summary.txt
 #  10. cleanup                              only what THIS run created: the temporary NCore store,
-#                                           training checkpoints and point-cloud renders, depth maps
-#                                           and masks. Kept: the export, images, semantics,
-#                                           meta_data.json, test renders, results.json, the runs.
+#                                           training checkpoints and point-cloud renders, depth maps,
+#                                           masks, rectified images and semantic labels (all regenerable
+#                                           with steps 1-3; the export is self-contained). Kept: the
+#                                           export, meta_data.json, test renders, results.json, the runs.
+# Disk guard: a clip whose scene is not built yet starts only with MIN_FREE_GB (default 12) free;
+# its peak is ~8 GB, so the volume never drops below ~4 GB (it also hosts the catalog database).
 # Re-running skips finished steps. Per-step timings: runs/twin_queue/<short>.json; logs beside it.
 set -uo pipefail
 H=$(cd "$(dirname "$0")/.." && pwd); E=$(cd "$H/.." && pwd); NCORE=$E/ncore
@@ -47,6 +50,10 @@ tp=$now; }
 fail(){ log "FAILED at $1 (see $L.$1.log)"; mark "$1" failed; exit 1; }
 MADE_STORE=0; PREPARED=0; TRAINED=0
 [ -f "$AUX" ] || fail aux-missing
+if [ ! -f "$SCENE/scene.pth" ]; then
+  free=$(df -BG --output=avail "$H" | tail -1 | tr -dc '0-9')
+  if [ "$free" -lt "${MIN_FREE_GB:-12}" ]; then log "only ${free} GB free (< ${MIN_FREE_GB:-12}): not starting"; mark disk-guard failed; exit 3; fi
+fi
 
 # 1-4 only matter until the scene is exported
 if [ ! -f "$SCENE/scene.pth" ]; then
@@ -114,7 +121,8 @@ grep -E "rec_02" "$Q/$short.summary.txt" | sed "s#^#[$short]   #"; mark summary
 if [ $KEEP -eq 0 ]; then
   [ $MADE_STORE -eq 1 ] && rm -rf "$TMP"
   [ $TRAINED -eq 1 ] && rm -rf "$MODEL/ckpts" "$MODEL/point_cloud_vis"
-  [ $PREPARED -eq 1 ] && rm -rf "$SRC/depth" "$SRC/masks" "$LSRC/depth" "$LSRC/masks"
+  [ $PREPARED -eq 1 ] && rm -rf "$SRC/depth" "$SRC/masks" "$SRC/images" "$SRC/semantics" \
+                                 "$LSRC/depth" "$LSRC/masks" "$LSRC/images" "$LSRC/semantics"
   mark cleanup
 fi
 log "DONE in $(( ($(date +%s) - t0) / 60 )) min; $(df -BG --output=avail "$H" | tail -1 | tr -d ' ') free"

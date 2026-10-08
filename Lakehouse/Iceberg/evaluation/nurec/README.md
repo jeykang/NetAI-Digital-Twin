@@ -207,7 +207,10 @@ Constant velocity (cv) and VaVAM, recorded-waypoint routes, our twin (+ NVIDIA's
 Time of day (`tod`) was corrected on 2026-10-06 against the frames themselves (front camera, real and rendered; first checked 2026-10-02): six clips are daytime, bb4394e7 is dawn and only e848c843 is night. The labels the queue was assembled with had four of them wrong (a2bd8a78, abd45a30 and 44c3b4d5 were tagged night, bb4394e7 day), so the queue is not the "4 day / 4 night" split it was meant to be, and no day/night breakdown of the fidelity result should be drawn from it. The dataset's own `hour_of_day` matches the frames for eight of the nine; ba91fe2c is tagged 02:00 but was filmed in daylight.
 
 
-**Result (n = 9 clips, final 2026-09-24).** Constant velocity reproduces NVIDIA's scene almost
+**Result (n = 9 clips, final 2026-09-24).** (2026-10-07: every constant-velocity rollout here,
+on both sides, braked at handover because of a zero-speed bug in the policy bridge, `ALPASIM.md`
+Batch 2 correction; the 9/9 agreement still checks the plumbing, since both twins ran the same
+braking policy, but the outcomes are that policy's.) Constant velocity reproduces NVIDIA's scene almost
 exactly: same outcome on 9/9 clips, median |Δ distance| 0.02 m (max 0.9 m), so the ego, actor
 and map plumbing matches. VaVAM, which drives from the rendered cameras, agrees with NVIDIA's
 scene on the outcome class (collision / off-road / clean) on 7/9 clips and on the at-fault

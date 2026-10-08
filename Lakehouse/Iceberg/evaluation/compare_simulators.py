@@ -38,11 +38,18 @@ def main():
     ap.add_argument("--rollouts", default=os.path.join(HERE, "..", "user_data", "rollouts.parquet"))
     ap.add_argument("--policy", default="vavam")
     ap.add_argument("--out", default=os.path.join(HERE, ".compare_simulators.csv"))
+    ap.add_argument("--protocol", choices=["original", "warmup"], default="warmup",
+                    help="warmup (2026-10-07): HUGSIM episodes with AlpaSim's 3.0 s recorded warm-up, and AlpaSim "
+                         "reference-policy runs from the fixed policy bridge; original: the first runs")
     a = ap.parse_args()
     r = pd.read_parquet(a.rollouts)
     r = r[r["policy"] == a.policy]
+    wu = 3.0 if a.protocol == "warmup" else 0.0
     hugs = r[(r.simulator == "hugsim") & r.twin.str.endswith("_lidar", na=False) & (r.scenario_variant == "rec_02")
-             & ((r.camera == "front-100-pinhole") if a.policy == "vavam" else True)]
+             & ((r.camera == "front-100-pinhole") if a.policy == "vavam" else True) & (r.warmup_s == wu)]
+    if a.policy != "vavam":
+        keep = "fixed" if a.protocol == "warmup" else "zero-speed bug"
+        r = r[(r.simulator != "alpasim") | (r.bridge == keep)]
     rows = []
     for clip in sorted(hugs.clip_id.unique()):
         al = r[(r.simulator == "alpasim") & (r.clip_id == clip)]

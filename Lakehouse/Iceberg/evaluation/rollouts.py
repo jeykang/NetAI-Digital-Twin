@@ -19,8 +19,12 @@ they are not interchangeable (HUGSIM.md caveats: a roadside barrier is off-road 
 scenery has no collision geometry, and a background collision in HUGSIM):
   AlpaSim  outcome = collision (collision_any) | off-road (offroad) | clean, within the span
            AlpaSim scores; failed = offroad_or_collision
-  HUGSIM   outcome = how the episode ended: collision | off-route (> 10 m from the recorded path)
-           | complete | step-cap; failed = collision
+  HUGSIM   outcome = the first failure, if any: off-road (the ego's own footprint leaves the
+           road-class ground, checked post hoc by hugsim/summarize_runs.py with the scorer's
+           commented-out single-frame rule) or collision; otherwise how the episode ended:
+           off-route (> 10 m from the recorded path) | complete | step-cap. failed = off-road or
+           collision, and dist_m is the distance driven at the first failure (AlpaSim likewise
+           stops scoring at its first failure). Until 2026-10-07 only collisions counted.
 How each run was configured (policy, route generator, image format, camera, map layers: NVIDIA's,
 borrowed by our twin, or none) is read from the run's own files, not from its name.
 """
@@ -43,6 +47,8 @@ HUG = os.path.join(HERE, "hugsim")
 SIM_SCENES = os.path.join(ALPA, "repo", "data", "scenes", "sim_scenes.csv")
 STAGED = os.path.join(HERE, "ncore", "staged")
 NUREC_OUT = os.path.join(HERE, "nurec", "out")
+# the policy bridge reported zero speed at handover until this fix (alpasim/plugin, 2026-10-07)
+BRIDGE_FIX_TS = 1791333600   # 2026-10-07 00:40 UTC
 ALPASIM_METRICS = ["progress_rel", "dist_traveled_m", "dist_to_gt_trajectory", "collision_any",
                    "collision_at_fault", "collision_rear", "offroad", "offroad_or_collision",
                    "offroad_or_collision_at_fault", "duration_frac_20s", "min_distance_to_obstacle_m"]
@@ -115,6 +121,9 @@ def alpasim_rows(uuid_of: dict) -> list[dict]:
                          "run": run, "clip_id": clip, "episode_id": ep, "serving_mode": mode, "twin": twin,
                          "policy": policy, "rollout": str(r["rollout_id"]), "seed": None,
                          "route_generator": route, "image_format": imgfmt, "camera": "front-wide-120-ftheta",
+                         "warmup_s": 3.0, "bridge": (None if policy == "vavam" else
+                                                     "fixed" if os.path.getmtime(os.path.join(rd, "wizard-config.yaml")) > BRIDGE_FIX_TS
+                                                     else "zero-speed bug"),   # written when the run starts
                          "map_layers": map_layers,
                          "scenario_variant": None, "outcome": oc, "failed": bool(r.get("offroad_or_collision")),
                          "dist_m": r.get("dist_traveled_m"),
@@ -133,17 +142,24 @@ def hugsim_rows(full: dict) -> list[dict]:
         parts = epname.rsplit("_", 2)
         scene, variant = parts[0], "_".join(parts[1:])
         clip = full.get(scene[:8])
-        policy = "vavam" if "vavam" in prefix else "constant_velocity" if prefix.endswith("_cv") else "ltf"
+        policy = "vavam" if "vavam" in prefix else "constant_velocity" if prefix.split("_")[1].startswith("cv") else "ltf"
+        warmup = 3.0 if ("wu" in prefix.split("_")[1] or "front100wu" in prefix) else 0.0
         m = re.search(r"_s(\d+)$", prefix)
         oc = {"collision": "collision", "off path": "off-route", "complete": "complete"}.get(r["end"], "step-cap")
+        off_t = r.get("offroad_t")
+        first_off = off_t is not None and (r["end"] != "collision" or off_t < r["sim_s"])
+        if first_off:
+            oc = "off-road"
         rows.append({"rollout_key": f"hugsim:{prefix}:{epname}", "simulator": "hugsim", "run": prefix,
                      "clip_id": clip, "episode_id": twin_episode_id(clip, "closedloop-hugsim", scene) if clip else None,
                      "serving_mode": "closedloop-hugsim", "twin": scene, "policy": policy,
                      "rollout": m.group(1) if m else "0", "seed": int(m.group(1)) if m else None,
                      "route_generator": "recorded-path", "image_format": "render", "map_layers": "none",
                      "camera": "front-100-pinhole" if "front100" in prefix else "nuscenes-front-65-pinhole",
-                     "scenario_variant": variant, "outcome": oc, "failed": oc == "collision",
-                     "dist_m": r["dist_m"], "sim_s": r["sim_s"], "max_gap_m": r["max_gap_m"],
+                     "warmup_s": warmup, "bridge": None,
+                     "scenario_variant": variant, "outcome": oc, "failed": oc in ("collision", "off-road"),
+                     "dist_m": r["offroad_dist_m"] if first_off else r["dist_m"],
+                     "sim_s": off_t if first_off else r["sim_s"], "episode_s": r["sim_s"], "max_gap_m": r["max_gap_m"],
                      "nc": r.get("nc"), "dac": r.get("dac"), "ttc": r.get("ttc"), "comfort": r.get("c"),
                      "rc": r.get("rc"), "hdscore": r.get("hdscore")})
     return rows

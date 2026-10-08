@@ -181,6 +181,21 @@ VaVAM travels further and survives longer on **10 of 10 clips** (Wilcoxon p=0.00
 both `progress` and `dist_traveled_m` — the floor at n=10). It halves the off-road
 rate, which is what a policy that can actually steer should do.
 
+> **Correction (2026-10-07): this `constant_velocity` did not hold its velocity.** While AlpaSim
+> forces the recorded trajectory (the first 3.0 s, `force_gt_duration_us`), its driver reports
+> zero speed, and our policy bridge passed that on (AlpaSim's `_get_speed_and_acceleration`
+> documents a finite-difference fallback for that case but does not implement it). Constant
+> velocity therefore planned to stand still at handover, AlpaSim braked, and the policy then held
+> whatever speed was left. Rollout logs show the speed handed to the policy at 0.00 from 0.5 to
+> 3.0 s, and in every constant-velocity rollout the speed after handover is 3–6 m/s below the
+> speed before it; slow clips crawl (1920170b 19.2 → 14.5 m/s, 2ce64e22 4.2 → 0.7 m/s here).
+> The bridge now falls back to the ego's pose history (`plugin/alpasim_harness/harness_model.py`).
+> So the table above compares VaVAM with "brake at handover, then hold", not with constant
+> velocity; VaVAM's 10-of-10 lead in progress and distance is at least partly that braking, and
+> the policy-level reversal below needs a rerun of these ten scenes with the fixed bridge (they
+> are no longer cached; the rerun waits on disk space). VaVAM's own numbers are unaffected: its
+> AlpaSim wrapper does not read the reported speed.
+
 It also collides *more*, and at fault where `constant_velocity` never was. That is not
 a contradiction: `constant_velocity` leaves the road almost immediately, and the run is
 truncated at that point, so it is never alive long enough to hit anything. Surviving
@@ -240,7 +255,8 @@ two also disagree at the policy level, in the direction that matters:
 | VaVAM | 0.489 | **0.471** |
 
 Open-loop ranks a policy that cannot steer *above* a real driving model. Closed-loop
-reverses it. The mechanism is not subtle: open-loop resets the ego to ground truth at
+reverses it. (Unconfirmed since 2026-10-07: the closed-loop `constant_velocity` here braked at
+handover because of a zero-speed bug in our bridge; see the correction under Batch 2.) The mechanism is not subtle: open-loop resets the ego to ground truth at
 every decision point, so heading error never compounds, and it scores a policy by
 similarity to the human trajectory rather than by whether the result is drivable.
 

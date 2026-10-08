@@ -1,0 +1,7 @@
+clip,nvidia,ours_nurec,ours_hugs,nurec_agrees,hugs_agrees,nvidia_med_m,nurec_med_m,hugs_med_m
+0ec48454,"1/1 failed, 38.3 m","1/1 failed, 38.4 m","0/1 failed, 211.8 m",True,False,38.34644437367369,38.35077877023828,211.79014704597006
+a07e81de,"0/1 failed, 27.4 m","0/1 failed, 27.4 m","1/1 failed, 87.5 m",True,False,27.35619008174098,27.41780822691745,87.52536150864826
+a2bd8a78,"1/1 failed, 27.7 m","1/1 failed, 27.6 m","1/1 failed, 33.8 m",True,True,27.652736728826245,27.642670577560956,33.80326910690813
+abd45a30,"1/1 failed, 42.4 m","1/1 failed, 42.4 m","1/1 failed, 94.1 m",True,True,42.42408562361514,42.43437201295413,94.115149550827
+ac73935a,"2/2 failed, 0.1 m","1/1 failed, 0.1 m","1/1 failed, 0.0 m",True,True,0.09362757996416102,0.06238292822693927,0.0
+bb4394e7,"1/1 failed, 0.0 m","1/1 failed, 0.9 m","1/1 failed, 0.0 m",True,True,0.00121980411771527,0.8878699827984293,0.0

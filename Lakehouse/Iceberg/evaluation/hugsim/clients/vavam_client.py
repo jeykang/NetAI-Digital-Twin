@@ -37,7 +37,15 @@ ap.add_argument("--context", type=int, default=1)
 # AlpaSim does not seed VAM (its flow-matching sampler draws fresh noise per call); a seed
 # here makes a HUGSIM episode reproducible, and several seeds give the policy's own spread
 ap.add_argument("--seed", type=int, default=None)
+# AlpaSim forces the recorded trajectory for its first 3.0 s (force_gt_duration_us); with
+# --warmup 3.0 this client sends the recorded path (clients/warmup.py) until then, so the policy
+# takes over in the same state as in AlpaSim. 0 = the original protocol (control from t = 0).
+ap.add_argument("--warmup", type=float, default=0.0)
 args = ap.parse_args()
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from warmup import RecordedPath  # noqa: E402
+recorded = RecordedPath(args.output) if args.warmup > 0 else None
 
 obs_pipe, plan_pipe = (os.path.join(args.output, p) for p in ("obs_pipe", "plan_pipe"))
 for p in (obs_pipe, plan_pipe):
@@ -71,15 +79,19 @@ while True:
     inp = PredictionInput(camera_images={args.camera: ctx}, command=command,
                           speed=float(info["ego_velo"]), acceleration=float(info["accelerate"] or 0.0),
                           ego_pose_history=[], inference_seed=n, previous_plan=None, route=None)
-    if args.seed is not None:
-        torch.manual_seed(args.seed * 100003 + n)
     t1 = time.time()
-    pred = model.predict(inp)
-    xy = pred.candidate_positions[pred.selected_index][:, :2]  # rig frame: x forward, y left
-    plan = np.stack([-xy[:, 1], xy[:, 0]], axis=1).astype(np.float64)  # HUGSIM: x right, y forward
+    warm = recorded is not None and float(info["timestamp"]) < args.warmup - 1e-6
+    if warm:
+        plan = recorded.plan(info, 6)                       # the recorded drive, as AlpaSim forces it
+    else:
+        if args.seed is not None:
+            torch.manual_seed(args.seed * 100003 + n)
+        pred = model.predict(inp)
+        xy = pred.candidate_positions[pred.selected_index][:, :2]  # rig frame: x forward, y left
+        plan = np.stack([-xy[:, 1], xy[:, 0]], axis=1).astype(np.float64)  # HUGSIM: x right, y forward
     with open(plan_pipe, "wb") as f:
         f.write(pickle.dumps(plan))
-    log.write(json.dumps({"step": n, "t": info["timestamp"], "command": int(info["command"]),
+    log.write(json.dumps({"step": n, "t": info["timestamp"], "warmup": bool(warm), "command": int(info["command"]),
                           "v": float(info["ego_velo"]), "ms": round(1e3 * (time.time() - t1)),
                           "plan": np.round(plan, 2).tolist()}) + "\n")
     log.flush()

@@ -96,8 +96,13 @@ class HarnessPolicyModel(BaseTrajectoryModel):
                  camera_ids: list[str], context_length: int,
                  output_frequency_hz: int):
         import sys
-        harness_dir = os.environ.get("HARNESS_DIR")
-        if harness_dir and harness_dir not in sys.path:
+        # The driver runs in a container that receives NO environment from the
+        # wizard (verified in the generated docker-compose: driver-0 has no `env`).
+        # `repo/data/drivers` is mounted at /mnt/drivers, so the harness sources are
+        # staged there and that is the in-container default. HARNESS_DIR still wins
+        # when the bridge is used outside a container.
+        harness_dir = os.environ.get("HARNESS_DIR") or "/mnt/drivers/harness"
+        if harness_dir and os.path.isdir(harness_dir) and harness_dir not in sys.path:
             sys.path.insert(0, harness_dir)
         self._policy = self._build_policy(policy_spec)
         self._device = device
@@ -147,10 +152,24 @@ class HarnessPolicyModel(BaseTrajectoryModel):
         if not hist:
             raise ValueError("AlpaSim supplied an empty ego_pose_history")
 
-        # speed/acceleration arrive as scalars in the rig frame; project onto heading
+        # speed/acceleration arrive as scalars in the rig frame; project onto heading.
+        # While AlpaSim forces the recorded trajectory (force_gt_duration_us, 3 s in our runs) its
+        # dynamic state reports zero speed, and `_get_speed_and_acceleration` documents a
+        # finite-difference fallback for that case but does not implement it. A policy that reads
+        # speed then plans to stand still at handover and AlpaSim brakes to a crawl (found
+        # 2026-10-07: every constant_velocity rollout before then). Fall back to the ego's own pose
+        # history over the last ~0.5 s.
         e = hist[-1]
-        vx = float(pi.speed) * float(np.cos(e.yaw))
-        vy = float(pi.speed) * float(np.sin(e.yaw))
+        speed = float(pi.speed)
+        if speed < 1e-3 and len(hist) >= 2:
+            ref = next((h for h in reversed(hist[:-1]) if e.t_us - h.t_us >= 500_000), hist[0])
+            dt = (e.t_us - ref.t_us) / 1e6
+            if dt > 1e-4:
+                speed = float(np.hypot(e.x - ref.x, e.y - ref.y) / dt)
+                if speed > 0.05:
+                    logger.info("bridge: AlpaSim reported zero speed; %.2f m/s from the pose history", speed)
+        vx = speed * float(np.cos(e.yaw))
+        vy = speed * float(np.sin(e.yaw))
         hist[-1] = EgoState(e.t_us, e.x, e.y, e.yaw, vx, vy, e.z,
                             e.qx, e.qy, e.qz, e.qw, float(pi.acceleration), 0.0)
 
@@ -166,9 +185,23 @@ class HarnessPolicyModel(BaseTrajectoryModel):
         )
 
     def predict(self, prediction_input: PredictionInput) -> ModelPrediction:
-        obs = self._observation(prediction_input)
-        traj = self._policy.plan(obs)
+        try:
+            obs = self._observation(prediction_input)
+        except Exception:
+            logger.exception("bridge failed building Observation")
+            raise
         n = obs.n_steps
+        try:
+            traj = self._policy.plan(obs)
+        except Exception:
+            logger.exception("policy.plan raised")
+            raise
+        logger.info("bridge: n_steps=%d horizon=%.2f dt=%.3f traj_len=%s speed=%.2f hist=%d",
+                    n, obs.horizon_s, obs.dt_s,
+                    "None" if traj is None else len(traj),
+                    float(prediction_input.speed), len(prediction_input.ego_pose_history))
+        if n <= 0:
+            raise ValueError(f"bridge computed n_steps={n} (horizon={obs.horizon_s}, dt={obs.dt_s})")
         if traj is None:
             traj = [(0.0, 0.0)] * n                      # refuse to move rather than guess
         pos = np.zeros((1, n, 3), dtype=np.float32)

@@ -12,11 +12,6 @@ Lakehouse/Iceberg/carla_official.sif
 Lakehouse/Iceberg/bevfusion/checkpoints/
 *.sif
 *.pth
-# my
-.gitsecret/keys/*
-!.gitsecret/keys/*.kbx*
-!*.secret
-omniverse-exts/operation-monitoring-exts-project/exts/operation.monitoring/operation/monitoring/ultra-optics-433707-s2-b93cb4a7a435.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

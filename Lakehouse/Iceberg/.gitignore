@@ -122,3 +122,5 @@ deploy/k8s/
 
 # local-only roadmap (names people and internal plans; the repo is public)
 ROADMAP.md
+# local-only weekly change overview (names hosts and people; the repo is public)
+/WEEKLY.md
